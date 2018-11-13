@@ -13,6 +13,8 @@ namespace Toolshed.Mailman
         public string Subject { get; set; }
         public MailAddress From { get; set; }
         public string ViewName { get; set; }
+        public bool IsAlternateViewsUsed { get; set; }
+        public System.Text.Encoding Encoding { get; set; } = System.Text.Encoding.UTF8;
 
         List<string> _To;
         public List<string> To
@@ -137,7 +139,14 @@ namespace Toolshed.Mailman
         }
         public async Task<MailMessage> GetMessage<T>(string viewName, T model)
         {
-            var message = new MailMessage { IsBodyHtml = true, Subject = Subject };
+            var message = new MailMessage
+            {
+                IsBodyHtml = true,
+                Subject = Subject,
+                SubjectEncoding = Encoding,
+                BodyEncoding = Encoding
+
+            };
 
             if (From != null)
             {
@@ -157,8 +166,11 @@ namespace Toolshed.Mailman
 
             var html = await _viewRenderService.RenderAsString(viewName, model);
             message.Body = html;
-            message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(html, System.Text.Encoding.UTF8, "text/html"));
-            message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(message.Subject, System.Text.Encoding.UTF8, "plain/text"));
+            if (IsAlternateViewsUsed)
+            {
+                message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(html, Encoding, "text/html"));
+                message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(message.Subject, Encoding, "plain/text"));
+            }
 
             if (_To != null && _To.Count > 0)
             {
