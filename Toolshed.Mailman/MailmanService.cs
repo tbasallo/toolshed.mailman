@@ -131,7 +131,10 @@ namespace Toolshed.Mailman
             return true;
         }
 
-
+        public Task<MailMessage> GetMessage<T>(T model)
+        {
+            return GetMessage(ViewName, model);
+        }
         public async Task<MailMessage> GetMessage<T>(string viewName, T model)
         {
             var message = new MailMessage { IsBodyHtml = true, Subject = Subject };
@@ -153,6 +156,7 @@ namespace Toolshed.Mailman
             }
 
             var html = await _viewRenderService.RenderAsString(viewName, model);
+            message.Body = html;
             message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(html, System.Text.Encoding.UTF8, "text/html"));
             message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(message.Subject, System.Text.Encoding.UTF8, "plain/text"));
 
