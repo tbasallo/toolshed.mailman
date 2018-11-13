@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp2.1</TargetFramework>
+    <Version>1.0.3</Version>
+    <PackageProjectUrl>https://github.com/tbasallo/toolshed.mailman</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/tbasallo/toolshed.mailman</RepositoryUrl>
+    <PackageLicenseUrl>https://github.com/tbasallo/toolshed.mailman/blob/master/LICENSE</PackageLicenseUrl>
+    <Description>A library to assist with sending mail in ASP.NET Core 2.1 using System.Net.Mail and Razor Views.</Description>
   </PropertyGroup>
 
   <ItemGroup>
