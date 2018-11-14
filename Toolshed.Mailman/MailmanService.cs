@@ -15,6 +15,7 @@ namespace Toolshed.Mailman
         public string ViewName { get; set; }
         public bool IsAlternateViewsUsed { get; set; }
         public System.Text.Encoding Encoding { get; set; } = System.Text.Encoding.UTF8;
+        public MailPriority Priority { get; set; } = MailPriority.Normal;
 
         List<string> _To;
         public List<string> To
@@ -144,8 +145,8 @@ namespace Toolshed.Mailman
                 IsBodyHtml = true,
                 Subject = Subject,
                 SubjectEncoding = Encoding,
-                BodyEncoding = Encoding
-
+                BodyEncoding = Encoding,
+                Priority = Priority
             };
 
             if (From != null)

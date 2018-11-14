@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp2.1</TargetFramework>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <PackageProjectUrl>https://github.com/tbasallo/toolshed.mailman</PackageProjectUrl>
     <RepositoryUrl>https://github.com/tbasallo/toolshed.mailman</RepositoryUrl>
     <PackageLicenseUrl>https://github.com/tbasallo/toolshed.mailman/blob/master/LICENSE</PackageLicenseUrl>
