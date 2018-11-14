@@ -155,7 +155,7 @@ namespace Toolshed.Mailman
             }
             else if (!string.IsNullOrWhiteSpace(_settings.FromAddress))
             {
-                if (string.IsNullOrWhiteSpace(_settings.FromDisplayName))
+                if (!string.IsNullOrWhiteSpace(_settings.FromDisplayName))
                 {
                     message.From = new MailAddress(_settings.FromAddress, _settings.FromDisplayName);
                 }
