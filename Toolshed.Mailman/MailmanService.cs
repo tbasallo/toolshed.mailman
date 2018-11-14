@@ -188,22 +188,22 @@ namespace Toolshed.Mailman
             {
                 if (_CC.Count == 1)
                 {
-                    message.To.Add(_CC[0]);
+                    message.CC.Add(_CC[0]);
                 }
                 else
                 {
-                    message.To.Add(string.Join(',', _CC));
+                    message.CC.Add(string.Join(',', _CC));
                 }
             }
             if (_Bcc != null && _Bcc.Count > 0)
             {
                 if (_Bcc.Count == 1)
                 {
-                    message.To.Add(_Bcc[0]);
+                    message.Bcc.Add(_Bcc[0]);
                 }
                 else
                 {
-                    message.To.Add(string.Join(',', _Bcc));
+                    message.Bcc.Add(string.Join(',', _Bcc));
                 }
             }
 
