@@ -16,6 +16,5 @@ namespace Toolshed.Mailman
         public int? Timeout { get; set; }
         public string FromAddress { get; set; }
         public string FromDisplayName { get; set; }
-    }
-    
+    }    
 }
