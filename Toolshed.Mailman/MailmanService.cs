@@ -11,11 +11,30 @@ namespace Toolshed.Mailman
         private MailmanSettings _settings;
 
         public string Subject { get; set; }
-        public MailAddress From { get; set; }
         public string ViewName { get; set; }
         public bool IsAlternateViewsUsed { get; set; }
         public System.Text.Encoding Encoding { get; set; } = System.Text.Encoding.UTF8;
         public MailPriority Priority { get; set; } = MailPriority.Normal;
+        public bool IsBodyHtml { get; set; } = true;
+
+        MailAddress _From;
+        public MailAddress From { get
+            {
+                if (_From == null)
+                {
+                    if (!string.IsNullOrWhiteSpace(_settings.FromDisplayName))
+                    {
+                        _From = new MailAddress(_settings.FromAddress, _settings.FromDisplayName);
+                    }
+                    else
+                    {
+                        _From = new MailAddress(_settings.FromAddress);
+                    }
+                }
+
+                return _From;
+            }
+            set { _From = value; } }
 
         List<string> _To;
         public List<string> To
@@ -142,35 +161,24 @@ namespace Toolshed.Mailman
         {
             var message = new MailMessage
             {
-                IsBodyHtml = true,
+                IsBodyHtml = IsBodyHtml,
                 Subject = Subject,
                 SubjectEncoding = Encoding,
                 BodyEncoding = Encoding,
                 Priority = Priority
             };
 
-            if (From != null)
-            {
-                message.From = From;
-            }
-            else if (!string.IsNullOrWhiteSpace(_settings.FromAddress))
-            {
-                if (!string.IsNullOrWhiteSpace(_settings.FromDisplayName))
-                {
-                    message.From = new MailAddress(_settings.FromAddress, _settings.FromDisplayName);
-                }
-                else
-                {
-                    message.From = new MailAddress(_settings.FromAddress);
-                }
-            }
+            message.From = From;
 
-            var html = await _viewRenderService.RenderAsString(viewName, model);
-            message.Body = html;
-            if (IsAlternateViewsUsed)
+            if (!string.IsNullOrWhiteSpace(viewName))
             {
-                message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(html, Encoding, "text/html"));
-                message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(message.Subject, Encoding, "plain/text"));
+                var html = await _viewRenderService.RenderAsString(viewName, model);
+                message.Body = html;
+                if (IsAlternateViewsUsed)
+                {
+                    message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(html, Encoding, "text/html"));
+                    message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(message.Subject, Encoding, "plain/text"));
+                }
             }
 
             if (_To != null && _To.Count > 0)
