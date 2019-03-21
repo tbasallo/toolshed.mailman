@@ -16,6 +16,7 @@ namespace Toolshed.Mailman
         public System.Text.Encoding Encoding { get; set; } = System.Text.Encoding.UTF8;
         public MailPriority Priority { get; set; } = MailPriority.Normal;
         public bool IsBodyHtml { get; set; } = true;
+        public bool IsResetedAfterMessageSent { get; set; }
 
         MailAddress _From;
         public MailAddress From { get
@@ -90,6 +91,24 @@ namespace Toolshed.Mailman
             }
         }
 
+        List<Attachment> _Attachments;
+        public List<Attachment> Attachments
+        {
+            get
+            {
+                if (_Attachments == null)
+                {
+                    _Attachments = new List<Attachment>();
+                }
+
+                return _Attachments;
+            }
+            set
+            {
+                _Attachments = value;
+            }
+        }
+
 
         public MailmanService(MailmanSettings settings, ViewRenderService viewRenderService)
         {
@@ -107,6 +126,7 @@ namespace Toolshed.Mailman
             _To = null;
             _CC = null;
             _Bcc = null;
+            _Attachments = null;
 
             if (resetFrom)
             {
@@ -181,6 +201,14 @@ namespace Toolshed.Mailman
                 }
             }
 
+            if (_Attachments != null && _Attachments.Count > 0)
+            {
+                foreach (var item in _Attachments)
+                {
+                    message.Attachments.Add(item);
+                }
+            }
+
             if (_To != null && _To.Count > 0)
             {
                 if (_To.Count == 1)
@@ -233,9 +261,11 @@ namespace Toolshed.Mailman
             var message = await GetMessage(ViewName, model);
             await SendMessage(message);
         }
-
+        //this is the final send using these shortcuts
         public async Task SendMessage(MailMessage mailMessage)
         {
+
+
             using (var smtp = new SmtpClient())
             {
                 smtp.DeliveryMethod = _settings.DeliveryMethod;
@@ -273,6 +303,11 @@ namespace Toolshed.Mailman
                 }
 
                 await smtp.SendMailAsync(mailMessage);
+            }
+
+            if(IsResetedAfterMessageSent)
+            {
+                Reset();
             }
         }
     }
