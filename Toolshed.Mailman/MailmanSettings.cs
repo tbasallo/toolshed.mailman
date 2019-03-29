@@ -9,6 +9,8 @@ namespace Toolshed.Mailman
         public string UserName { get; set; }
 
         public string Password { get; set; }
+        public string Password1 { get; set; }
+        public string Password2 { get; set; }
 
         public string Host { get; set; }
         public int? Port { get; set; }
@@ -16,5 +18,5 @@ namespace Toolshed.Mailman
         public int? Timeout { get; set; }
         public string FromAddress { get; set; }
         public string FromDisplayName { get; set; }
-    }    
+    }
 }
