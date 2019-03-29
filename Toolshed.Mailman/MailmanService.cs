@@ -18,6 +18,11 @@ namespace Toolshed.Mailman
         public bool IsBodyHtml { get; set; } = true;
         public bool IsResetedAfterMessageSent { get; set; }
 
+        /// <summary>
+        /// Indicates what password to use from the settings and overrides the value in the settings if provided
+        /// </summary>
+        public int? UsePassword { get; set; }
+
         MailAddress _From;
         public MailAddress From { get
             {
@@ -261,10 +266,20 @@ namespace Toolshed.Mailman
             var message = await GetMessage(ViewName, model);
             await SendMessage(message);
         }
+
         //this is the final send using these shortcuts
         public async Task SendMessage(MailMessage mailMessage)
         {
 
+            var password = _settings.Password;
+            if (UsePassword.HasValue && UsePassword.Value > 0)
+            {
+                password = UsePassword.Value == 1 ? _settings.Password1 : UsePassword.Value == 2 ? _settings.Password2 : throw new ArgumentNullException($"Unknown password index ({UsePassword.Value})");
+            }
+            else if (_settings.UsePassword > 0)
+            {
+                password = _settings.UsePassword == 1 ? _settings.Password1 : _settings.UsePassword == 2 ? _settings.Password2 : throw new ArgumentNullException($"Unknown password index ({_settings.UsePassword.Value})");
+            }
 
             using (var smtp = new SmtpClient())
             {
@@ -276,9 +291,9 @@ namespace Toolshed.Mailman
                 }
                 else
                 {
-                    if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
+                    if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(password))
                     {
-                        smtp.Credentials = new System.Net.NetworkCredential(_settings.UserName, _settings.Password);
+                        smtp.Credentials = new System.Net.NetworkCredential(_settings.UserName, password);
                     }
 
                     if (!string.IsNullOrWhiteSpace(_settings.Host))
