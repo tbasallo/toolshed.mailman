@@ -278,7 +278,7 @@ namespace Toolshed.Mailman
             }
             else if (_settings.UsePassword > 0)
             {
-                password = _settings.UsePassword == 1 ? _settings.Password1 : _settings.UsePassword == 2 ? _settings.Password2 : throw new ArgumentNullException($"Unknown password index ({_settings.UsePassword.Value})");
+                password = _settings.UsePassword == 1 ? _settings.Password1 : _settings.UsePassword == 2 ? _settings.Password2 : throw new ArgumentNullException($"Unknown password index ({_settings.UsePassword})");
             }
 
             using (var smtp = new SmtpClient())
