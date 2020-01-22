@@ -19,12 +19,21 @@ namespace Toolshed.Mailman
         public bool IsResetedAfterMessageSent { get; set; }
 
         /// <summary>
+        /// A list of categories to add to X-SMTPAPI header. This will overwrite any categories provided by the settings. To keep the current categories, use the AddCategory() method
+        /// </summary>
+        public string Categories { get; set; }
+
+        private string InternalCategories { get; set; }
+
+        /// <summary>
         /// Indicates what password to use from the settings and overrides the value in the settings if provided
         /// </summary>
         public int? UsePassword { get; set; }
 
         MailAddress _From;
-        public MailAddress From { get
+        public MailAddress From
+        {
+            get
             {
                 if (_From == null)
                 {
@@ -40,7 +49,8 @@ namespace Toolshed.Mailman
 
                 return _From;
             }
-            set { _From = value; } }
+            set { _From = value; }
+        }
 
         List<string> _To;
         public List<string> To
@@ -119,6 +129,8 @@ namespace Toolshed.Mailman
         {
             _viewRenderService = viewRenderService;
             _settings = settings;
+
+            InternalCategories = settings.Categories;
         }
 
         /// <summary>
@@ -176,6 +188,21 @@ namespace Toolshed.Mailman
             }
 
             return true;
+        }
+
+
+
+        public void AddCategory(string category)
+        {
+            if (string.IsNullOrWhiteSpace(InternalCategories))
+            {
+                InternalCategories = category;
+            }
+            else
+            {
+                InternalCategories += "," + category;
+            }
+
         }
 
         public Task<MailMessage> GetMessage<T>(T model)
@@ -285,6 +312,8 @@ namespace Toolshed.Mailman
             {
                 smtp.DeliveryMethod = _settings.DeliveryMethod;
 
+
+
                 if (smtp.DeliveryMethod == SmtpDeliveryMethod.SpecifiedPickupDirectory)
                 {
                     smtp.PickupDirectoryLocation = _settings.PickupDirectoryLocation;
@@ -317,10 +346,19 @@ namespace Toolshed.Mailman
                     }
                 }
 
+                if(!string.IsNullOrWhiteSpace(Categories))
+                {
+                    mailMessage.Headers.Add("X-SMTPAPI", "{category:[\"" + Categories + "\"]}");
+                }
+                else if(!string.IsNullOrWhiteSpace(InternalCategories))
+                {
+                    mailMessage.Headers.Add("X-SMTPAPI", "{category:[\"" + InternalCategories + "\"]}");
+                }                
+
                 await smtp.SendMailAsync(mailMessage);
             }
 
-            if(IsResetedAfterMessageSent)
+            if (IsResetedAfterMessageSent)
             {
                 Reset();
             }

@@ -22,5 +22,10 @@ namespace Toolshed.Mailman
         public int? Timeout { get; set; }
         public string FromAddress { get; set; }
         public string FromDisplayName { get; set; }
+
+        /// <summary>
+        /// A comma delimited list of values to add to the X-SMTPAPI header when the email is sent
+        /// </summary>
+        public string Categories { get; set; }
     }
 }

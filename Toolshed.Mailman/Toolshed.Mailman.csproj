@@ -5,8 +5,11 @@
     <Version>1.1</Version>
     <PackageProjectUrl>https://github.com/tbasallo/toolshed.mailman</PackageProjectUrl>
     <RepositoryUrl>https://github.com/tbasallo/toolshed.mailman</RepositoryUrl>
-    <PackageLicenseUrl>https://github.com/tbasallo/toolshed.mailman/blob/master/LICENSE</PackageLicenseUrl>
+    <PackageLicenseUrl></PackageLicenseUrl>
     <Description>A library to assist with sending mail in ASP.NET Core 2.1 using System.Net.Mail and Razor Views.</Description>
+    <ApplicationIcon />
+    <OutputType>Library</OutputType>
+    <StartupObject />
   </PropertyGroup>
 
   <ItemGroup>
