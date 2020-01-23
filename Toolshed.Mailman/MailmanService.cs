@@ -348,11 +348,11 @@ namespace Toolshed.Mailman
 
                 if(!string.IsNullOrWhiteSpace(Categories))
                 {
-                    mailMessage.Headers.Add("X-SMTPAPI", "{category:[\"" + Categories + "\"]}");
+                    mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
                 }
                 else if(!string.IsNullOrWhiteSpace(InternalCategories))
                 {
-                    mailMessage.Headers.Add("X-SMTPAPI", "{category:[\"" + InternalCategories + "\"]}");
+                    mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
                 }                
 
                 await smtp.SendMailAsync(mailMessage);
