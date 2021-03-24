@@ -16,9 +16,7 @@ namespace Toolshed.Mailman
         private MailmanSettings _settings;
 
         public string Subject { get; set; }
-        public string ViewName { get; set; }
-        public bool IsAlternateViewsUsed { get; set; }
-        public System.Text.Encoding Encoding { get; set; } = System.Text.Encoding.UTF8;
+        public string ViewName { get; set; }                
         public MessageImportance Importance { get; set; } = MessageImportance.Normal;
         public MessagePriority Priority { get; set; } = MessagePriority.Normal;
         public bool IsBodyHtml { get; set; } = true;
@@ -30,11 +28,6 @@ namespace Toolshed.Mailman
         public string Categories { get; set; }
 
         private string InternalCategories { get; set; }
-
-        /// <summary>
-        /// Indicates what password to use from the settings and overrides the value in the settings if provided
-        /// </summary>
-        public int? UsePassword { get; set; }
 
 
         public void AddTo(string email)
@@ -62,6 +55,13 @@ namespace Toolshed.Mailman
             Bcc.Add(new MailboxAddress(name, email));
         }
 
+        public void AddFrom(string email)
+        {
+            Froms.Add(new MailboxAddress(email, email));
+        }
+
+
+
         MailboxAddress _From;
         public MailboxAddress From
         {
@@ -82,6 +82,28 @@ namespace Toolshed.Mailman
                 return _From;
             }
             set { _From = value; }
+        }
+
+
+        List<MailboxAddress> _Froms;
+        /// <summary>
+        /// 
+        /// </summary>
+        public List<MailboxAddress> Froms
+        {
+            get
+            {
+                if (_Froms == null)
+                {
+                    _Froms = new List<MailboxAddress>();
+                }
+
+                return _Froms;
+            }
+            set
+            {
+                _Froms = value;
+            }
         }
 
         List<MailboxAddress> _To;
@@ -245,7 +267,14 @@ namespace Toolshed.Mailman
                     message.Body = new TextPart(TextFormat.Text) { Text = html };
                 }
             }
-
+            if (_Froms != null && _Froms.Count > 0)
+            {
+                message.From.AddRange(Froms);
+            }
+            else if (From != null)
+            {
+                message.From.Add(From);
+            }
             if (_To != null && _To.Count > 0)
             {
                 message.To.AddRange(To);
