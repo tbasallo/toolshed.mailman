@@ -1,7 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Net.Mail;
+using System.IO;
 using System.Threading.Tasks;
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
+using MimeKit.IO;
+using MimeKit.Text;
 
 namespace Toolshed.Mailman
 {
@@ -14,7 +19,8 @@ namespace Toolshed.Mailman
         public string ViewName { get; set; }
         public bool IsAlternateViewsUsed { get; set; }
         public System.Text.Encoding Encoding { get; set; } = System.Text.Encoding.UTF8;
-        public MailPriority Priority { get; set; } = MailPriority.Normal;
+        public MessageImportance Importance { get; set; } = MessageImportance.Normal;
+        public MessagePriority Priority { get; set; } = MessagePriority.Normal;
         public bool IsBodyHtml { get; set; } = true;
         public bool IsResetedAfterMessageSent { get; set; }
 
@@ -30,8 +36,34 @@ namespace Toolshed.Mailman
         /// </summary>
         public int? UsePassword { get; set; }
 
-        MailAddress _From;
-        public MailAddress From
+
+        public void AddTo(string email)
+        {
+            To.Add(new MailboxAddress(email, email));
+        }
+        public void AddTo(string name, string email)
+        {
+            To.Add(new MailboxAddress(name, email));
+        }
+        public void AddCc(string email)
+        {
+            CC.Add(new MailboxAddress(email, email));
+        }
+        public void AddCc(string name, string email)
+        {
+            CC.Add(new MailboxAddress(name, email));
+        }
+        public void AddBcc(string email)
+        {
+            Bcc.Add(new MailboxAddress(email, email));
+        }
+        public void AddBcc(string name, string email)
+        {
+            Bcc.Add(new MailboxAddress(name, email));
+        }
+
+        MailboxAddress _From;
+        public MailboxAddress From
         {
             get
             {
@@ -39,11 +71,11 @@ namespace Toolshed.Mailman
                 {
                     if (!string.IsNullOrWhiteSpace(_settings.FromDisplayName))
                     {
-                        _From = new MailAddress(_settings.FromAddress, _settings.FromDisplayName);
+                        _From = new MailboxAddress(_settings.FromDisplayName, _settings.FromAddress);
                     }
                     else
                     {
-                        _From = new MailAddress(_settings.FromAddress);
+                        _From = new MailboxAddress(_settings.FromAddress, _settings.FromAddress);
                     }
                 }
 
@@ -52,14 +84,14 @@ namespace Toolshed.Mailman
             set { _From = value; }
         }
 
-        List<string> _To;
-        public List<string> To
+        List<MailboxAddress> _To;
+        public List<MailboxAddress> To
         {
             get
             {
                 if (_To == null)
                 {
-                    _To = new List<string>();
+                    _To = new List<MailboxAddress>();
                 }
 
                 return _To;
@@ -70,14 +102,14 @@ namespace Toolshed.Mailman
             }
         }
 
-        List<string> _CC;
-        public List<string> CC
+        List<MailboxAddress> _CC;
+        public List<MailboxAddress> CC
         {
             get
             {
                 if (_CC == null)
                 {
-                    _CC = new List<string>();
+                    _CC = new List<MailboxAddress>();
                 }
 
                 return _CC;
@@ -88,14 +120,14 @@ namespace Toolshed.Mailman
             }
         }
 
-        List<string> _Bcc;
-        public List<string> Bcc
+        List<MailboxAddress> _Bcc;
+        public List<MailboxAddress> Bcc
         {
             get
             {
                 if (_Bcc == null)
                 {
-                    _Bcc = new List<string>();
+                    _Bcc = new List<MailboxAddress>();
                 }
 
                 return _Bcc;
@@ -103,24 +135,6 @@ namespace Toolshed.Mailman
             set
             {
                 _Bcc = value;
-            }
-        }
-
-        List<Attachment> _Attachments;
-        public List<Attachment> Attachments
-        {
-            get
-            {
-                if (_Attachments == null)
-                {
-                    _Attachments = new List<Attachment>();
-                }
-
-                return _Attachments;
-            }
-            set
-            {
-                _Attachments = value;
             }
         }
 
@@ -142,8 +156,7 @@ namespace Toolshed.Mailman
             Subject = null;
             _To = null;
             _CC = null;
-            _Bcc = null;
-            _Attachments = null;
+            _Bcc = null;            
 
             if (resetFrom)
             {
@@ -182,7 +195,7 @@ namespace Toolshed.Mailman
             {
                 return false;
             }
-            if (_settings.DeliveryMethod == SmtpDeliveryMethod.Network && string.IsNullOrWhiteSpace(_settings.Host))
+            if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.Network && string.IsNullOrWhiteSpace(_settings.Host))
             {
                 return false;
             }
@@ -205,157 +218,99 @@ namespace Toolshed.Mailman
 
         }
 
-        public Task<MailMessage> GetMessage<T>(T model)
+        public Task<MimeMessage> GetMessageAsync<T>(T model)
         {
-            return GetMessage(ViewName, model);
+            return GetMessageAsync(ViewName, model);
         }
-        public async Task<MailMessage> GetMessage<T>(string viewName, T model)
+        public async Task<MimeMessage> GetMessageAsync<T>(string viewName, T model)
         {
-            var message = new MailMessage
+            var message = new MimeMessage
             {
-                IsBodyHtml = IsBodyHtml,
                 Subject = Subject,
-                SubjectEncoding = Encoding,
-                BodyEncoding = Encoding,
-                Priority = Priority
+                //SubjectEncoding = Encoding,
+                //BodyEncoding = Encoding,
+                Priority = Priority,
+                Importance = Importance
             };
-
-            message.From = From;
 
             if (!string.IsNullOrWhiteSpace(viewName))
             {
                 var html = await _viewRenderService.RenderAsString(viewName, model);
-                message.Body = html;
-                if (IsAlternateViewsUsed)
+                if (IsBodyHtml)
                 {
-                    message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(html, Encoding, "text/html"));
-                    message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(message.Subject, Encoding, "plain/text"));
+                    message.Body = new TextPart(TextFormat.Html) { Text = html };
                 }
-            }
-
-            if (_Attachments != null && _Attachments.Count > 0)
-            {
-                foreach (var item in _Attachments)
+                else
                 {
-                    message.Attachments.Add(item);
+                    message.Body = new TextPart(TextFormat.Text) { Text = html };
                 }
             }
 
             if (_To != null && _To.Count > 0)
             {
-                if (_To.Count == 1)
-                {
-                    message.To.Add(_To[0]);
-                }
-                else
-                {
-                    message.To.Add(string.Join(',', _To));
-                }
+                message.To.AddRange(To);
             }
             if (_CC != null && _CC.Count > 0)
             {
-                if (_CC.Count == 1)
-                {
-                    message.CC.Add(_CC[0]);
-                }
-                else
-                {
-                    message.CC.Add(string.Join(',', _CC));
-                }
+                message.Cc.AddRange(CC);
             }
             if (_Bcc != null && _Bcc.Count > 0)
             {
-                if (_Bcc.Count == 1)
-                {
-                    message.Bcc.Add(_Bcc[0]);
-                }
-                else
-                {
-                    message.Bcc.Add(string.Join(',', _Bcc));
-                }
+                message.Bcc.AddRange(Bcc);
             }
 
             return message;
         }
 
-        public async Task SendMessage<T>(string viewName, T model)
+        public async Task SendMessageAsync<T>(string viewName, T model)
         {
-            var message = await GetMessage(viewName, model);
-            await SendMessage(message);
+            var message = await GetMessageAsync(viewName, model);
+            await SendMessageAsync(message);
         }
-        public async Task SendMessage<T>(T model)
+        public async Task SendMessageAsync<T>(T model)
         {
             if (string.IsNullOrWhiteSpace(ViewName))
             {
                 throw new ArgumentNullException("ViewName", "The view name must be provided either by the property ViewName or using the method that has it as a parameter");
             }
 
-            var message = await GetMessage(ViewName, model);
-            await SendMessage(message);
+            var message = await GetMessageAsync(ViewName, model);
+            await SendMessageAsync(message);
         }
 
         //this is the final send using these shortcuts
-        public async Task SendMessage(MailMessage mailMessage)
+        public async Task SendMessageAsync(MimeMessage mailMessage)
         {
-
-            var password = _settings.Password;
-            if (UsePassword.HasValue && UsePassword.Value > 0)
+            if (!string.IsNullOrWhiteSpace(Categories))
             {
-                password = UsePassword.Value == 1 ? _settings.Password1 : UsePassword.Value == 2 ? _settings.Password2 : throw new ArgumentNullException($"Unknown password index ({UsePassword.Value})");
+                mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
             }
-            else if (_settings.UsePassword > 0)
+            else if (!string.IsNullOrWhiteSpace(InternalCategories))
             {
-                password = _settings.UsePassword == 1 ? _settings.Password1 : _settings.UsePassword == 2 ? _settings.Password2 : throw new ArgumentNullException($"Unknown password index ({_settings.UsePassword})");
+                mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
+            }            
+
+            if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
+            {
+                SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation);
+                return;
             }
 
-            using (var smtp = new SmtpClient())
+            using (var sm = new SmtpClient { })
             {
-                smtp.DeliveryMethod = _settings.DeliveryMethod;
-
-
-
-                if (smtp.DeliveryMethod == SmtpDeliveryMethod.SpecifiedPickupDirectory)
+                if (_settings.Timeout.HasValue)
                 {
-                    smtp.PickupDirectoryLocation = _settings.PickupDirectoryLocation;
-                }
-                else
-                {
-                    if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(password))
-                    {
-                        smtp.Credentials = new System.Net.NetworkCredential(_settings.UserName, password);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(_settings.Host))
-                    {
-                        smtp.Host = _settings.Host;
-                    }
-
-                    if (_settings.Port.HasValue)
-                    {
-                        smtp.Port = _settings.Port.Value;
-                    }
-
-                    if (_settings.EnableSsl.HasValue)
-                    {
-                        smtp.EnableSsl = _settings.EnableSsl.Value;
-                    }
-
-                    if (_settings.Timeout.HasValue)
-                    {
-                        smtp.Timeout = _settings.Timeout.Value;
-                    }
+                    sm.Timeout = _settings.Timeout.Value;
                 }
 
-                if(!string.IsNullOrWhiteSpace(Categories))
+                if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
                 {
-                    mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
+                    sm.Authenticate(new System.Net.NetworkCredential(_settings.UserName, _settings.Password));
                 }
-                else if(!string.IsNullOrWhiteSpace(InternalCategories))
-                {
-                    mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
-                }                
 
-                await smtp.SendMailAsync(mailMessage);
+                await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
+                await sm.SendAsync(mailMessage);
+                await sm.DisconnectAsync(true);
             }
 
             if (IsResetedAfterMessageSent)
@@ -363,5 +318,68 @@ namespace Toolshed.Mailman
                 Reset();
             }
         }
+
+
+        private static void SaveToPickupDirectory(MimeMessage message, string pickupDirectory)
+        {
+            do
+            {
+                // Generate a random file name to save the message to.
+                var path = Path.Combine(pickupDirectory, Guid.NewGuid().ToString() + ".eml");
+                Stream stream;
+
+                try
+                {
+                    // Attempt to create the new file.
+                    stream = File.Open(path, FileMode.CreateNew);
+                }
+                catch (IOException)
+                {
+                    // If the file already exists, try again with a new Guid.
+                    if (File.Exists(path))
+                        continue;
+
+                    // Otherwise, fail immediately since it probably means that there is
+                    // no graceful way to recover from this error.
+                    throw;
+                }
+
+                try
+                {
+                    using (stream)
+                    {
+                        // IIS pickup directories expect the message to be "byte-stuffed"
+                        // which means that lines beginning with "." need to be escaped
+                        // by adding an extra "." to the beginning of the line.
+                        //
+                        // Use an SmtpDataFilter "byte-stuff" the message as it is written
+                        // to the file stream. This is the same process that an SmtpClient
+                        // would use when sending the message in a `DATA` command.
+                        using (var filtered = new FilteredStream(stream))
+                        {
+                            filtered.Add(new SmtpDataFilter());
+
+                            // Make sure to write the message in DOS (<CR><LF>) format.
+                            var options = FormatOptions.Default.Clone();
+                            options.NewLineFormat = NewLineFormat.Dos;
+
+                            message.WriteTo(options, filtered);
+                            filtered.Flush();
+                            return;
+                        }
+                    }
+                }
+                catch
+                {
+                    // An exception here probably means that the disk is full.
+                    //
+                    // Delete the file that was created above so that incomplete files are not
+                    // left behind for IIS to send accidentally.
+                    File.Delete(path);
+                    throw;
+                }
+            } while (true);
+        }
     }
 }
+
