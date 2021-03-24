@@ -16,7 +16,7 @@ namespace Toolshed.Mailman
         private MailmanSettings _settings;
 
         public string Subject { get; set; }
-        public string ViewName { get; set; }                
+        public string ViewName { get; set; }
         public MessageImportance Importance { get; set; } = MessageImportance.Normal;
         public MessagePriority Priority { get; set; } = MessagePriority.Normal;
         public bool IsBodyHtml { get; set; } = true;
@@ -178,7 +178,7 @@ namespace Toolshed.Mailman
             Subject = null;
             _To = null;
             _CC = null;
-            _Bcc = null;            
+            _Bcc = null;
 
             if (resetFrom)
             {
@@ -270,11 +270,22 @@ namespace Toolshed.Mailman
             if (_Froms != null && _Froms.Count > 0)
             {
                 message.From.AddRange(Froms);
+
+                if (message.From.Count > 1)
+                {
+                    message.Sender = Froms[0];
+                }
             }
             else if (From != null)
             {
                 message.From.Add(From);
             }
+
+            if (message.From.Count == 0 && !string.IsNullOrWhiteSpace(_settings.FromAddress))
+            {
+                message.From.Add(new MailboxAddress(_settings.FromDisplayName ?? _settings.FromAddress, _settings.FromAddress));
+            }            
+
             if (_To != null && _To.Count > 0)
             {
                 message.To.AddRange(To);
@@ -317,7 +328,7 @@ namespace Toolshed.Mailman
             else if (!string.IsNullOrWhiteSpace(InternalCategories))
             {
                 mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
-            }            
+            }
 
             if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
             {
