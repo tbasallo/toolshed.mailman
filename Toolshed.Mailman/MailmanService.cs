@@ -56,15 +56,15 @@ namespace Toolshed.Mailman
             Bcc.Add(new MailboxAddress(name, email));
         }
 
-        public void AddTo(List<string> emails)
+        public void AddTo(IEnumerable<string> emails)
         {
             To.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
         }
-        public void AddCc(List<string> emails)
+        public void AddCc(IEnumerable<string> emails)
         {
             CC.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
         }
-        public void AddBcc(List<string> emails)
+        public void AddBcc(IEnumerable<string> emails)
         {
             Bcc.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
         }
