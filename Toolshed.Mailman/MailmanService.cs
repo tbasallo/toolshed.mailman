@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -53,6 +54,19 @@ namespace Toolshed.Mailman
         public void AddBcc(string name, string email)
         {
             Bcc.Add(new MailboxAddress(name, email));
+        }
+
+        public void AddTo(List<string> emails)
+        {
+            To.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
+        }
+        public void AddCc(List<string> emails)
+        {
+            CC.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
+        }
+        public void AddBcc(List<string> emails)
+        {
+            Bcc.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
         }
 
         public void AddFrom(string email)
@@ -284,7 +298,7 @@ namespace Toolshed.Mailman
             if (message.From.Count == 0 && !string.IsNullOrWhiteSpace(_settings.FromAddress))
             {
                 message.From.Add(new MailboxAddress(_settings.FromDisplayName ?? _settings.FromAddress, _settings.FromAddress));
-            }            
+            }
 
             if (_To != null && _To.Count > 0)
             {
@@ -342,6 +356,8 @@ namespace Toolshed.Mailman
                 {
                     sm.Timeout = _settings.Timeout.Value;
                 }
+
+                sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
 
                 if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
                 {
