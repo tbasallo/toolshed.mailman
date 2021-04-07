@@ -101,7 +101,7 @@ namespace Toolshed.Mailman
 
         List<MailboxAddress> _Froms;
         /// <summary>
-        /// 
+        ///
         /// </summary>
         public List<MailboxAddress> Froms
         {
@@ -359,12 +359,13 @@ namespace Toolshed.Mailman
 
                 sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
 
+                await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
+
                 if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
                 {
                     sm.Authenticate(new System.Net.NetworkCredential(_settings.UserName, _settings.Password));
                 }
 
-                await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
                 await sm.SendAsync(mailMessage);
                 await sm.DisconnectAsync(true);
             }
