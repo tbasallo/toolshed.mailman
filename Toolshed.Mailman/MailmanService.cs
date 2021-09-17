@@ -1,13 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using MailKit.Net.Smtp;
+﻿using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
 using MimeKit.IO;
 using MimeKit.Text;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Toolshed.Mailman
 {
@@ -240,6 +240,8 @@ namespace Toolshed.Mailman
         }
 
 
+        public List<MimeEntity> Attachments { get; set; } = new List<MimeEntity>();
+
 
         public void AddCategory(string category)
         {
@@ -269,16 +271,41 @@ namespace Toolshed.Mailman
                 Importance = Importance
             };
 
-            if (!string.IsNullOrWhiteSpace(viewName))
+            if (Attachments.Count > 0)
             {
-                var html = await _viewRenderService.RenderAsString(viewName, model);
-                if (IsBodyHtml)
+                var builder = new BodyBuilder();
+                if (!string.IsNullOrWhiteSpace(viewName))
                 {
-                    message.Body = new TextPart(TextFormat.Html) { Text = html };
+                    if (IsBodyHtml)
+                    {
+                        builder.HtmlBody = await _viewRenderService.RenderAsString(viewName, model);
+                    }
+                    else
+                    {
+                        builder.TextBody = await _viewRenderService.RenderAsString(viewName, model);
+                    }
                 }
-                else
+
+                foreach (var item in Attachments)
                 {
-                    message.Body = new TextPart(TextFormat.Text) { Text = html };
+                    builder.Attachments.Add(item);
+                }
+
+                message.Body = builder.ToMessageBody();
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(viewName))
+                {
+                    var html = await _viewRenderService.RenderAsString(viewName, model);
+                    if (IsBodyHtml)
+                    {
+                        message.Body = new TextPart(TextFormat.Html) { Text = html };
+                    }
+                    else
+                    {
+                        message.Body = new TextPart(TextFormat.Text) { Text = html };
+                    }
                 }
             }
             if (_Froms != null && _Froms.Count > 0)
@@ -342,6 +369,11 @@ namespace Toolshed.Mailman
             else if (!string.IsNullOrWhiteSpace(InternalCategories))
             {
                 mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
+            }
+
+            if (Attachments.Count > 0)
+            {
+
             }
 
             if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
