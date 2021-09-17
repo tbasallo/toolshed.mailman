@@ -239,9 +239,7 @@ namespace Toolshed.Mailman
             return true;
         }
 
-
-        public List<MimeEntity> Attachments { get; set; } = new List<MimeEntity>();
-
+        public AttachmentCollection Attachments { get; set; } = new AttachmentCollection(false);
 
         public void AddCategory(string category)
         {
