@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using static Org.BouncyCastle.Math.EC.ECCurve;
 
 namespace Toolshed.Mailman
 {
@@ -25,6 +26,12 @@ namespace Toolshed.Mailman
         {
             var m = new MailmanSettings();
             configSection.Bind(m);
+            services.AddMailman(m);
+        }
+        public static void AddMailman(this IServiceCollection services, IConfigurationRoot config)
+        {
+            var m = new MailmanSettings();
+            config.GetSection("MailmanSettings").Bind(m);
             services.AddMailman(m);
         }
         public static void AddMailman(this IServiceCollection services, MailmanSettings settings)
