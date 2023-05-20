@@ -340,6 +340,83 @@ namespace Toolshed.Mailman
 
             return message;
         }
+        public MimeMessage GetMessage(string body, bool isHtml)
+        {
+            IsBodyHtml = isHtml;
+            var message = new MimeMessage
+            {
+                Subject = Subject,
+                //SubjectEncoding = Encoding,
+                //BodyEncoding = Encoding,
+                Priority = Priority,
+                Importance = Importance
+            };
+
+            if (Attachments.Count > 0)
+            {
+                var builder = new BodyBuilder();
+                if (IsBodyHtml)
+                {
+                    builder.HtmlBody = body;
+                }
+                else
+                {
+                    builder.TextBody = body;
+                }
+
+                foreach (var item in Attachments)
+                {
+                    builder.Attachments.Add(item);
+                }
+
+                message.Body = builder.ToMessageBody();
+            }
+            else
+            {
+                if (IsBodyHtml)
+                {
+                    message.Body = new TextPart(TextFormat.Html) { Text = body };
+                }
+                else
+                {
+                    message.Body = new TextPart(TextFormat.Text) { Text = body };
+                }
+            }
+
+            if (_Froms != null && _Froms.Count > 0)
+            {
+                message.From.AddRange(Froms);
+
+                if (message.From.Count > 1)
+                {
+                    message.Sender = Froms[0];
+                }
+            }
+            else if (From != null)
+            {
+                message.From.Add(From);
+            }
+
+            if (message.From.Count == 0 && !string.IsNullOrWhiteSpace(_settings.FromAddress))
+            {
+                message.From.Add(new MailboxAddress(_settings.FromDisplayName ?? _settings.FromAddress, _settings.FromAddress));
+            }
+
+            if (_To != null && _To.Count > 0)
+            {
+                message.To.AddRange(To);
+            }
+            if (_CC != null && _CC.Count > 0)
+            {
+                message.Cc.AddRange(CC);
+            }
+            if (_Bcc != null && _Bcc.Count > 0)
+            {
+                message.Bcc.AddRange(Bcc);
+            }
+
+            return message;
+        }
 
         public async Task SendMessageAsync<T>(string viewName, T model)
         {
@@ -355,8 +432,51 @@ namespace Toolshed.Mailman
 
             var message = await GetMessageAsync(ViewName, model);
             await SendMessageAsync(message);
-        }
+        }        
+        public async Task SendMessageAsync(string body, bool isHtml)
+        {
+            var mailMessage = GetMessage(body, isHtml);
 
+            if (!string.IsNullOrWhiteSpace(Categories))
+            {
+                mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
+            }
+            else if (!string.IsNullOrWhiteSpace(InternalCategories))
+            {
+                mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
+            }
+
+            if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
+            {
+                SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation);
+                return;
+            }
+
+            using (var sm = new SmtpClient { })
+            {
+                if (_settings.Timeout.HasValue)
+                {
+                    sm.Timeout = _settings.Timeout.Value;
+                }
+
+                sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
+
+                await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
+
+                if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
+                {
+                    sm.Authenticate(new System.Net.NetworkCredential(_settings.UserName, _settings.Password));
+                }
+
+                await sm.SendAsync(mailMessage);
+                await sm.DisconnectAsync(true);
+            }
+
+            if (IsResetedAfterMessageSent)
+            {
+                Reset();
+            }
+        }
         //this is the final send using these shortcuts
         public async Task SendMessageAsync(MimeMessage mailMessage)
         {
@@ -405,7 +525,6 @@ namespace Toolshed.Mailman
                 Reset();
             }
         }
-
 
         private static void SaveToPickupDirectory(MimeMessage message, string pickupDirectory)
         {
