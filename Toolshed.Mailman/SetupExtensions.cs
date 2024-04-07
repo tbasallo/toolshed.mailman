@@ -1,10 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using static Org.BouncyCastle.Math.EC.ECCurve;
 
 namespace Toolshed.Mailman
 {
@@ -38,8 +34,6 @@ namespace Toolshed.Mailman
         {
             services.AddSingleton(settings);
             services.AddTransient<MailmanService>();
-            services.AddScoped<ViewRenderService>();
         }
-
     }
 }
