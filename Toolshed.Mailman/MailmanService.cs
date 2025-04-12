@@ -252,98 +252,10 @@ public class MailmanService
 
     }
 
-    public Task<MimeMessage> GetMessageAsync<T>(T model)
-    {
-        return GetMessageAsync(ViewName, model);
-    }
 
-
-
-
-
-    public async Task<MimeMessage> GetMessageAsync<T>(string viewName, T model)
-    {
-        var message = new MimeMessage
-        {
-            Subject = Subject,
-            //SubjectEncoding = Encoding,
-            //BodyEncoding = Encoding,
-            Priority = Priority,
-            Importance = Importance
-        };
-
-        if (Attachments.Count > 0)
-        {
-            var builder = new BodyBuilder();
-            if (!string.IsNullOrWhiteSpace(viewName))
-            {
-                if (IsBodyHtml)
-                {
-                    builder.HtmlBody = await (RazorSlice.Create(viewName, model)).RenderAsync();
-                }
-                else
-                {
-                    builder.TextBody = await (RazorSlice.Create(viewName, model)).RenderAsync();
-                }
-            }
-
-            foreach (var item in Attachments)
-            {
-                builder.Attachments.Add(item);
-            }
-
-            message.Body = builder.ToMessageBody();
-        }
-        else
-        {
-            if (!string.IsNullOrWhiteSpace(viewName))
-            {
-                var html = await (RazorSlice.Create(viewName, model)).RenderAsync();
-                if (IsBodyHtml)
-                {
-                    message.Body = new TextPart(TextFormat.Html) { Text = html };
-                }
-                else
-                {
-                    message.Body = new TextPart(TextFormat.Text) { Text = html };
-                }
-            }
-        }
-        if (_Froms != null && _Froms.Count > 0)
-        {
-            message.From.AddRange(Froms);
-
-            if (message.From.Count > 1)
-            {
-                message.Sender = Froms[0];
-            }
-        }
-        else if (From != null)
-        {
-            message.From.Add(From);
-        }
-
-        if (message.From.Count == 0 && !string.IsNullOrWhiteSpace(_settings.FromAddress))
-        {
-            message.From.Add(new MailboxAddress(_settings.FromDisplayName ?? _settings.FromAddress, _settings.FromAddress));
-        }
-
-        if (_To != null && _To.Count > 0)
-        {
-            message.To.AddRange(To);
-        }
-        if (_CC != null && _CC.Count > 0)
-        {
-            message.Cc.AddRange(CC);
-        }
-        if (_Bcc != null && _Bcc.Count > 0)
-        {
-            message.Bcc.AddRange(Bcc);
-        }
-
-        return message;
-    }
-    public MimeMessage GetMessage(string body, bool isHtml)
+    
+    
+    public MimeMessage GetMessage(string body, bool isHtml = true)
     {
         IsBodyHtml = isHtml;
         var message = new MimeMessage
@@ -421,22 +333,14 @@ public class MailmanService
         return message;
     }
 
-    public async Task SendMessageAsync<T>(string viewName, T model)
-    {
-        var message = await GetMessageAsync(viewName, model);
-        await SendMessageAsync(message);
-    }
-    public async Task SendMessageAsync<T>(T model)
-    {
-        if (string.IsNullOrWhiteSpace(ViewName))
-        {
-            throw new ArgumentNullException("ViewName", "The view name must be provided either by the property ViewName or using the method that has it as a parameter");
-        }
-
-        var message = await GetMessageAsync(ViewName, model);
-        await SendMessageAsync(message);
-    }
-    public async Task SendMessageAsync(string body, bool isHtml)
+    /// <summary>
+    /// Send a message using the SMTP client. The message can either be a string or HTML. 
+    /// There is no longer a method to use a MVC view to create a message. The RazorSlice extensions my be added, but fo rnow they are gone.
+    /// </summary>
+    /// <param name="body"></param>
+    /// <param name="isHtml"></param>
+    /// <returns></returns>
+    public async Task SendMessageAsync(string body, bool isHtml = true)
     {
         var mailMessage = GetMessage(body, isHtml);
 
@@ -480,6 +384,8 @@ public class MailmanService
             Reset();
         }
     }
+    
+    
     //this is the final send using these shortcuts
     public async Task SendMessageAsync(MimeMessage mailMessage)
     {

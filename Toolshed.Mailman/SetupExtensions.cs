@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using Microsoft.Extensions.Options;
 
 namespace Toolshed.Mailman
 {
@@ -30,6 +31,30 @@ namespace Toolshed.Mailman
             config.GetSection("MailmanSettings").Bind(m);
             services.AddMailman(m);
         }
+
+
+        public static void AddMailman(this IServiceCollection services, IConfiguration config, Action<MailmanSettings> configureOptions)
+        {
+            var m = new MailmanSettings();
+            config.GetSection("MailmanSettings").Bind(m);
+            configureOptions.Invoke(m);
+            services.AddMailman(m);
+        }
+        public static void AddMailman(this IServiceCollection services, IConfigurationSection configSection, Action<MailmanSettings> configureOptions)
+        {
+            var m = new MailmanSettings();
+            configSection.Bind(m);
+            configureOptions.Invoke(m);
+            services.AddMailman(m);
+        }
+        public static void AddMailman(this IServiceCollection services, IConfigurationRoot config, Action<MailmanSettings> configureOptions)
+        {
+            var m = new MailmanSettings();
+            config.GetSection("MailmanSettings").Bind(m);
+            configureOptions.Invoke(m);
+            services.AddMailman(m);
+        }
+
         public static void AddMailman(this IServiceCollection services, MailmanSettings settings)
         {
             services.AddSingleton(settings);
