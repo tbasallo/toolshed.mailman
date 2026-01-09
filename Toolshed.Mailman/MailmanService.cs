@@ -3,6 +3,7 @@ using MailKit.Security;
 using MimeKit;
 using MimeKit.IO;
 using MimeKit.Text;
+using MimeKit.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -191,6 +192,8 @@ public class MailmanService
         _To = null;
         _CC = null;
         _Bcc = null;
+        LinkedResources.Clear();
+        Attachments.Clear();
 
         if (resetFrom)
         {
@@ -239,6 +242,71 @@ public class MailmanService
 
     public AttachmentCollection Attachments { get; set; } = new AttachmentCollection(false);
 
+    /// <summary>
+    /// A collection of linked resources (embedded images) that can be referenced in HTML body using cid: URLs
+    /// </summary>
+    public List<MimeEntity> LinkedResources { get; set; } = new List<MimeEntity>();
+
+    /// <summary>
+    /// Adds a linked resource (embedded image) from a file path. Returns the Content-Id to use in HTML (e.g., src="cid:{contentId}")
+    /// </summary>
+    /// <param name="filePath">The path to the image file</param>
+    /// <param name="contentType">Optional content type (e.g., "image/png"). If not provided, it will be inferred from the file extension.</param>
+    /// <returns>The Content-Id to reference in HTML</returns>
+    public string AddLinkedResource(string filePath, string contentType = null)
+    {
+        var mimeType = contentType ?? MimeTypes.GetMimeType(filePath);
+
+        var resource = new MimePart(mimeType)
+        {
+            Content = new MimeContent(File.OpenRead(filePath)),
+            ContentDisposition = new ContentDisposition(ContentDisposition.Inline),
+            ContentTransferEncoding = ContentEncoding.Base64,
+            FileName = Path.GetFileName(filePath)
+        };
+
+        resource.ContentId = MimeUtils.GenerateMessageId();
+        LinkedResources.Add(resource);
+
+        return resource.ContentId;
+    }
+
+    /// <summary>
+    /// Adds a linked resource (embedded image) from a stream. Returns the Content-Id to use in HTML (e.g., src="cid:{contentId}")
+    /// </summary>
+    /// <param name="stream">The stream containing the image data</param>
+    /// <param name="fileName">The file name for the resource</param>
+    /// <param name="contentType">The content type (e.g., "image/png")</param>
+    /// <returns>The Content-Id to reference in HTML</returns>
+    public string AddLinkedResource(Stream stream, string fileName, string contentType)
+    {
+        var resource = new MimePart(contentType)
+        {
+            Content = new MimeContent(stream),
+            ContentDisposition = new ContentDisposition(ContentDisposition.Inline),
+            ContentTransferEncoding = ContentEncoding.Base64,
+            FileName = fileName
+        };
+
+        resource.ContentId = MimeUtils.GenerateMessageId();
+        LinkedResources.Add(resource);
+
+        return resource.ContentId;
+    }
+
+    /// <summary>
+    /// Adds a linked resource (embedded image) from a byte array. Returns the Content-Id to use in HTML (e.g., src="cid:{contentId}")
+    /// </summary>
+    /// <param name="data">The byte array containing the image data</param>
+    /// <param name="fileName">The file name for the resource</param>
+    /// <param name="contentType">The content type (e.g., "image/png")</param>
+    /// <returns>The Content-Id to reference in HTML</returns>
+    public string AddLinkedResource(byte[] data, string fileName, string contentType)
+    {
+        var stream = new MemoryStream(data);
+        return AddLinkedResource(stream, fileName, contentType);
+    }
+
     public void AddCategory(string category)
     {
         if (string.IsNullOrWhiteSpace(InternalCategories))
@@ -267,7 +335,7 @@ public class MailmanService
             Importance = Importance
         };
 
-        if (Attachments.Count > 0)
+        if (Attachments.Count > 0 || LinkedResources.Count > 0)
         {
             var builder = new BodyBuilder();
             if (IsBodyHtml)
@@ -282,6 +350,11 @@ public class MailmanService
             foreach (var item in Attachments)
             {
                 builder.Attachments.Add(item);
+            }
+
+            foreach (var linkedResource in LinkedResources)
+            {
+                builder.LinkedResources.Add(linkedResource);
             }
 
             message.Body = builder.ToMessageBody();
