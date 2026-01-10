@@ -12,15 +12,42 @@ using System.Threading.Tasks;
 
 namespace Toolshed.Mailman;
 
-public class MailmanService
+/// <summary>
+/// Initializes a new instance of the MailmanService with the specified settings
+/// </summary>
+/// <param name="settings">The configuration settings for the mail service</param>
+public class MailmanService(MailmanSettings settings)
 {
-    private MailmanSettings _settings;
+    private readonly MailmanSettings _settings = settings;
 
+    /// <summary>
+    /// The subject line of the email message
+    /// </summary>
     public string Subject { get; set; }
+
+    /// <summary>
+    /// The name of the view to use for rendering the email body
+    /// </summary>
     public string ViewName { get; set; }
+
+    /// <summary>
+    /// The importance level of the email message. Defaults to Normal.
+    /// </summary>
     public MessageImportance Importance { get; set; } = MessageImportance.Normal;
+
+    /// <summary>
+    /// The priority level of the email message. Defaults to Normal.
+    /// </summary>
     public MessagePriority Priority { get; set; } = MessagePriority.Normal;
+
+    /// <summary>
+    /// Indicates whether the email body is HTML formatted. Defaults to true.
+    /// </summary>
     public bool IsBodyHtml { get; set; } = true;
+
+    /// <summary>
+    /// When true, the service will automatically reset after sending a message
+    /// </summary>
     public bool IsResetedAfterMessageSent { get; set; }
 
     /// <summary>
@@ -28,55 +55,97 @@ public class MailmanService
     /// </summary>
     public string Categories { get; set; }
 
-    private string InternalCategories { get; set; }
+    private string InternalCategories { get; set; } = settings.Categories;
 
 
+    /// <summary>
+    /// Adds a recipient email address to the To list
+    /// </summary>
+    /// <param name="email">The email address to add</param>
     public void AddTo(string email)
     {
         To.Add(new MailboxAddress(email, email));
     }
+
+    /// <summary>
+    /// Adds a recipient with display name and email address to the To list
+    /// </summary>
+    /// <param name="name">The display name of the recipient</param>
+    /// <param name="email">The email address of the recipient</param>
     public void AddTo(string name, string email)
     {
         To.Add(new MailboxAddress(name, email));
     }
+
+    /// <summary>
+    /// Adds a CC recipient email address
+    /// </summary>
+    /// <param name="email">The email address to add</param>
     public void AddCc(string email)
     {
         CC.Add(new MailboxAddress(email, email));
     }
+
+    /// <summary>
+    /// Adds a CC recipient with display name and email address
+    /// </summary>
+    /// <param name="name">The display name of the recipient</param>
+    /// <param name="email">The email address of the recipient</param>
     public void AddCc(string name, string email)
     {
         CC.Add(new MailboxAddress(name, email));
     }
+
+    /// <summary>
+    /// Adds a BCC recipient email address
+    /// </summary>
+    /// <param name="email">The email address to add</param>
     public void AddBcc(string email)
     {
         Bcc.Add(new MailboxAddress(email, email));
     }
+
+    /// <summary>
+    /// Adds a BCC recipient with display name and email address
+    /// </summary>
+    /// <param name="name">The display name of the recipient</param>
+    /// <param name="email">The email address of the recipient</param>
     public void AddBcc(string name, string email)
     {
         Bcc.Add(new MailboxAddress(name, email));
     }
 
+    /// <summary>
+    /// Adds multiple recipient email addresses to the To list
+    /// </summary>
+    /// <param name="emails">The collection of email addresses to add</param>
     public void AddTo(IEnumerable<string> emails)
     {
         To.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
     }
+
+    /// <summary>
+    /// Adds multiple CC recipient email addresses
+    /// </summary>
+    /// <param name="emails">The collection of email addresses to add</param>
     public void AddCc(IEnumerable<string> emails)
     {
         CC.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
     }
+
+    /// <summary>
+    /// Adds multiple BCC recipient email addresses
+    /// </summary>
+    /// <param name="emails">The collection of email addresses to add</param>
     public void AddBcc(IEnumerable<string> emails)
     {
         Bcc.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
     }
 
-    public void AddFrom(string email)
-    {
-        Froms.Add(new MailboxAddress(email, email));
-    }
-
-
-
     MailboxAddress _From;
+    /// <summary>
+    /// The primary sender address. If not set, defaults to the FromAddress from settings.
+    /// </summary>
     public MailboxAddress From
     {
         get
@@ -98,38 +167,15 @@ public class MailmanService
         set { _From = value; }
     }
 
-
-    List<MailboxAddress> _Froms;
-    /// <summary>
-    ///
-    /// </summary>
-    public List<MailboxAddress> Froms
-    {
-        get
-        {
-            if (_Froms == null)
-            {
-                _Froms = new List<MailboxAddress>();
-            }
-
-            return _Froms;
-        }
-        set
-        {
-            _Froms = value;
-        }
-    }
-
     List<MailboxAddress> _To;
+    /// <summary>
+    /// The list of primary recipients (To addresses)
+    /// </summary>
     public List<MailboxAddress> To
     {
         get
         {
-            if (_To == null)
-            {
-                _To = new List<MailboxAddress>();
-            }
-
+            _To ??= [];
             return _To;
         }
         set
@@ -139,15 +185,14 @@ public class MailmanService
     }
 
     List<MailboxAddress> _CC;
+    /// <summary>
+    /// The list of CC (carbon copy) recipients
+    /// </summary>
     public List<MailboxAddress> CC
     {
         get
-        {
-            if (_CC == null)
-            {
-                _CC = new List<MailboxAddress>();
-            }
-
+        {            
+            _CC ??= [];
             return _CC;
         }
         set
@@ -157,15 +202,14 @@ public class MailmanService
     }
 
     List<MailboxAddress> _Bcc;
+    /// <summary>
+    /// The list of BCC (blind carbon copy) recipients
+    /// </summary>
     public List<MailboxAddress> Bcc
     {
         get
         {
-            if (_Bcc == null)
-            {
-                _Bcc = new List<MailboxAddress>();
-            }
-
+            _Bcc ??= [];
             return _Bcc;
         }
         set
@@ -175,11 +219,14 @@ public class MailmanService
     }
 
 
-    public MailmanService(MailmanSettings settings)
+    /// <summary>
+    /// Clears all recipients (To, CC, and BCC) from the message
+    /// </summary>
+    public void ClearRecipients()
     {
-        _settings = settings;
-
-        InternalCategories = settings.Categories;
+        _To?.Clear();
+        _CC?.Clear();
+        _Bcc?.Clear();
     }
 
     /// <summary>
@@ -189,9 +236,7 @@ public class MailmanService
     public void Reset(bool resetFrom = false)
     {
         Subject = null;
-        _To = null;
-        _CC = null;
-        _Bcc = null;
+        ClearRecipients();
         LinkedResources.Clear();
         Attachments.Clear();
 
@@ -240,12 +285,15 @@ public class MailmanService
         return true;
     }
 
+    /// <summary>
+    /// The collection of file attachments to include with the email
+    /// </summary>
     public AttachmentCollection Attachments { get; set; } = new AttachmentCollection(false);
 
     /// <summary>
     /// A collection of linked resources (embedded images) that can be referenced in HTML body using cid: URLs
     /// </summary>
-    public List<MimeEntity> LinkedResources { get; set; } = new List<MimeEntity>();
+    public List<MimeEntity> LinkedResources { get; set; } = [];
 
     /// <summary>
     /// Adds a linked resource (embedded image) from a file path. Returns the Content-Id to use in HTML (e.g., src="cid:{contentId}")
@@ -262,10 +310,9 @@ public class MailmanService
             Content = new MimeContent(File.OpenRead(filePath)),
             ContentDisposition = new ContentDisposition(ContentDisposition.Inline),
             ContentTransferEncoding = ContentEncoding.Base64,
-            FileName = Path.GetFileName(filePath)
+            FileName = Path.GetFileName(filePath),
+            ContentId = MimeUtils.GenerateMessageId()
         };
-
-        resource.ContentId = MimeUtils.GenerateMessageId();
         LinkedResources.Add(resource);
 
         return resource.ContentId;
@@ -285,10 +332,9 @@ public class MailmanService
             Content = new MimeContent(stream),
             ContentDisposition = new ContentDisposition(ContentDisposition.Inline),
             ContentTransferEncoding = ContentEncoding.Base64,
-            FileName = fileName
+            FileName = fileName,
+            ContentId = MimeUtils.GenerateMessageId()
         };
-
-        resource.ContentId = MimeUtils.GenerateMessageId();
         LinkedResources.Add(resource);
 
         return resource.ContentId;
@@ -307,6 +353,10 @@ public class MailmanService
         return AddLinkedResource(stream, fileName, contentType);
     }
 
+    /// <summary>
+    /// Adds a category to the email for tracking purposes. Categories are appended to existing categories.
+    /// </summary>
+    /// <param name="category">The category name to add</param>
     public void AddCategory(string category)
     {
         if (string.IsNullOrWhiteSpace(InternalCategories))
@@ -321,8 +371,13 @@ public class MailmanService
     }
 
 
-    
-    
+
+    /// <summary>
+    /// Creates a MimeMessage from the current service state with the specified body content
+    /// </summary>
+    /// <param name="body">The body content of the email</param>
+    /// <param name="isHtml">Whether the body content is HTML formatted. Defaults to true.</param>
+    /// <returns>A configured MimeMessage ready for sending</returns>
     public MimeMessage GetMessage(string body, bool isHtml = true)
     {
         IsBodyHtml = isHtml;
@@ -371,16 +426,8 @@ public class MailmanService
             }
         }
 
-        if (_Froms != null && _Froms.Count > 0)
-        {
-            message.From.AddRange(Froms);
 
-            if (message.From.Count > 1)
-            {
-                message.Sender = Froms[0];
-            }
-        }
-        else if (From != null)
+        if (From != null)
         {
             message.From.Add(From);
         }
@@ -407,7 +454,7 @@ public class MailmanService
     }
 
     /// <summary>
-    /// Send a message using the SMTP client. The message can either be a string or HTML. 
+    /// Send a message using the SMTP client. The message can either be a string or HTML.
     /// There is no longer a method to use a MVC view to create a message. The RazorSlice extensions my be added, but fo rnow they are gone.
     /// </summary>
     /// <param name="body"></param>
@@ -457,9 +504,13 @@ public class MailmanService
             Reset();
         }
     }
-    
-    
-    //this is the final send using these shortcuts
+
+
+    /// <summary>
+    /// Sends a pre-configured MimeMessage using the SMTP client
+    /// </summary>
+    /// <param name="mailMessage">The MimeMessage to send</param>
+    /// <returns>A task representing the asynchronous send operation</returns>
     public async Task SendMessageAsync(MimeMessage mailMessage)
     {
         if (!string.IsNullOrWhiteSpace(Categories))
@@ -543,18 +594,16 @@ public class MailmanService
                     // Use an SmtpDataFilter "byte-stuff" the message as it is written
                     // to the file stream. This is the same process that an SmtpClient
                     // would use when sending the message in a `DATA` command.
-                    using (var filtered = new FilteredStream(stream))
-                    {
-                        filtered.Add(new SmtpDataFilter());
+                    using var filtered = new FilteredStream(stream);
+                    filtered.Add(new SmtpDataFilter());
 
-                        // Make sure to write the message in DOS (<CR><LF>) format.
-                        var options = FormatOptions.Default.Clone();
-                        options.NewLineFormat = NewLineFormat.Dos;
+                    // Make sure to write the message in DOS (<CR><LF>) format.
+                    var options = FormatOptions.Default.Clone();
+                    options.NewLineFormat = NewLineFormat.Dos;
 
-                        message.WriteTo(options, filtered);
-                        filtered.Flush();
-                        return;
-                    }
+                    message.WriteTo(options, filtered);
+                    filtered.Flush();
+                    return;
                 }
             }
             catch

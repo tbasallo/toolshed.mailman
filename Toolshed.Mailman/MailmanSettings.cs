@@ -2,22 +2,54 @@
 
 namespace Toolshed.Mailman
 {
+    /// <summary>
+    /// Configuration settings for the Mailman email service
+    /// </summary>
     public class MailmanSettings
     {
-        public string PickupDirectoryLocation { get; set; }
         /// <summary>
-        /// This uses .NET delivery method because MimeKit doesn't have a version of this, so we'll keep using instead of creating or own
+        /// The directory path where email messages are saved when using SpecifiedPickupDirectory delivery method
+        /// </summary>
+        public string PickupDirectoryLocation { get; set; }
+
+        /// <summary>
+        /// This uses .NET delivery method because MimeKit doesn't have a version of this, so we'll keep using instead of creating our own
         /// </summary>
         public SmtpDeliveryMethod DeliveryMethod { get; set; }
+
+        /// <summary>
+        /// The username authentication
+        /// </summary>
         public string UserName { get; set; }
 
-        public string Password { get; set; }        
-        
+        /// <summary>
+        /// The password authentication
+        /// </summary>
+        public string Password { get; set; }
 
+        /// <summary>
+        /// The server hostname or IP address
+        /// </summary>
         public string Host { get; set; }
-        public int Port { get; set; } = 25;        
+
+        /// <summary>
+        /// The server port. Defaults to 25.
+        /// </summary>
+        public int Port { get; set; } = 25;
+
+        /// <summary>
+        /// The timeout in milliseconds for operations. If null, the default timeout is used.
+        /// </summary>
         public int? Timeout { get; set; }
+
+        /// <summary>
+        /// The default sender email address used when From is not explicitly set
+        /// </summary>
         public string FromAddress { get; set; }
+
+        /// <summary>
+        /// The default sender display name used when From is not explicitly set
+        /// </summary>
         public string FromDisplayName { get; set; }
 
         /// <summary>
@@ -25,26 +57,11 @@ namespace Toolshed.Mailman
         /// </summary>
         public string Categories { get; set; }
 
-        //FROM MAILKIT
-        //
-        // Summary:
-        //     Get or set whether connecting via SSL/TLS should check certificate revocation.
-        //
-        // Value:
-        //     true if certificate revocation should be checked; otherwise, false.
-        //
-        // Remarks:
-        //     Gets or sets whether connecting via SSL/TLS should check certificate revocation.
-        //     Normally, the value of this property should be set to true (the default) for
-        //     security reasons, but there are times when it may be necessary to set it to false.
-        //     For example, most Certificate Authorities are probably pretty good at keeping
-        //     their CRL and/or OCSP servers up 24/7, but occasionally they do go down or are
-        //     otherwise unreachable due to other network problems between the client and the
-        //     Certificate Authority. When this happens, it becomes impossible to check the
-        //     revocation status of one or more of the certificates in the chain resulting in
-        //     an MailKit.Security.SslHandshakeException being thrown in the Connect method.
-        //     If this becomes a problem, it may become desirable to set MailKit.MailService.CheckCertificateRevocation
-        //     to false.
+        /// <summary>
+        /// Gets or sets whether connecting via SSL/TLS should check certificate revocation.
+        /// Defaults to true for security reasons. Set to false if Certificate Authority
+        /// CRL/OCSP servers are unreachable, which can cause SslHandshakeException.
+        /// </summary>
         public bool CheckCertificateRevocation { get; set; } = true;
     }
 }
