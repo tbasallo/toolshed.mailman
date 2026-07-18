@@ -14,12 +14,21 @@ using System.Threading.Tasks;
 namespace Toolshed.Mailman;
 
 /// <summary>
-/// Initializes a new instance of the MailmanService with the specified settings
+/// Builds and sends email messages via MailKit/MimeKit using the supplied <see cref="MailmanSettings"/>.
+/// The service holds message state (subject, recipients, attachments, categories) and a reusable SMTP
+/// connection that is created lazily on first send and reused across subsequent sends for efficiency.
+/// <para>
+/// This type is <b>not thread-safe</b>: it maintains mutable message state and a single shared SMTP
+/// client, so a given instance must not be used concurrently from multiple threads. Register/resolve
+/// one instance per logical unit of work and dispose it (preferably via <c>await using</c>) so the
+/// underlying SMTP connection is released.
+/// </para>
 /// </summary>
 /// <param name="settings">The configuration settings for the mail service</param>
 public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDisposable
 {
     private readonly MailmanSettings _settings = settings;
+    private SmtpClient? _smtpClient;
     private bool _disposed;
 
     /// <summary>
@@ -28,7 +37,9 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
     public string? Subject { get; set; }
 
     /// <summary>
-    /// The name of the view to use for rendering the email body
+    /// An optional view name for callers that render the email body themselves (for example a Razor
+    /// view/template engine) before passing the result to <see cref="SendMessageAsync(string, bool, CancellationToken)"/>.
+    /// This value is not used internally by the service and has no effect on sending.
     /// </summary>
     public string? ViewName { get; set; }
 
@@ -43,7 +54,9 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
     public MessagePriority Priority { get; set; } = MessagePriority.Normal;
 
     /// <summary>
-    /// When true, the service will automatically reset after sending a message
+    /// When true, the service automatically calls <see cref="Reset(bool)"/> after a message is sent,
+    /// clearing the subject, recipients, attachments, and categories. The reusable SMTP connection is
+    /// left intact so it can be reused by the next send.
     /// </summary>
     public bool IsResetedAfterMessageSent { get; set; }
 
@@ -450,7 +463,9 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
 
 
     /// <summary>
-    /// Sends a pre-configured MimeMessage using the SMTP client
+    /// Sends a pre-configured MimeMessage over the service's reusable SMTP connection. The connection is
+    /// established on first use and reused by later sends; if it has gone stale it is transparently
+    /// rebuilt and the send is retried once.
     /// </summary>
     /// <param name="mailMessage">The MimeMessage to send</param>
     /// <param name="disposeMessage">Disposes the MimeMessage after sending. If you're not using the message after this send, this should be true.</param>
@@ -462,8 +477,58 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
     }
 
     /// <summary>
-    /// Applies the X-SMTPAPI category header (when categories are configured), saves to the pickup
-    /// directory or connects and sends the message via SMTP, and optionally resets the service state.
+    /// Sends multiple pre-configured messages over the service's reusable SMTP connection. This is more
+    /// efficient than a naive loop because the connection and authentication handshake are performed only
+    /// once and the connection is kept open across all messages in the batch. If the connection drops
+    /// mid-batch it is transparently rebuilt and the failing message is retried once. When the delivery
+    /// method is a pickup directory, each message is written to disk instead.
+    /// </summary>
+    /// <param name="mailMessages">The messages to send</param>
+    /// <param name="disposeMessages">Disposes each MimeMessage after it is sent. If you're not using the messages after this send, this should be true.</param>
+    /// <param name="cancellationToken">A token to cancel the send operation</param>
+    /// <returns>A task representing the asynchronous send operation</returns>
+    public async Task SendMessagesAsync(IEnumerable<MimeMessage> mailMessages, bool disposeMessages = false, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mailMessages);
+
+        if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(_settings.PickupDirectoryLocation))
+            {
+                throw new InvalidOperationException($"{nameof(MailmanSettings.PickupDirectoryLocation)} must be set when {nameof(MailmanSettings.DeliveryMethod)} is {nameof(System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)}.");
+            }
+
+            foreach (var message in mailMessages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ApplyCategories(message);
+                SaveToPickupDirectory(message, _settings.PickupDirectoryLocation);
+                if (disposeMessages)
+                {
+                    message.Dispose();
+                }
+            }
+            return;
+        }
+
+        // Establish (or reuse) the connection up front so a bad configuration fails fast.
+        await GetConnectedClientAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var message in mailMessages)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ApplyCategories(message);
+            await SendWithReconnectAsync(message, cancellationToken).ConfigureAwait(false);
+            if (disposeMessages)
+            {
+                message.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies the X-SMTPAPI category header (when categories are configured), then either writes the
+    /// message to the pickup directory or sends it over the reusable SMTP connection (with a single
+    /// reconnect-and-retry on a stale connection), and optionally resets the service state.
     /// </summary>
     private async Task SendCoreAsync(MimeMessage mailMessage, bool disposeMessage, CancellationToken cancellationToken)
     {
@@ -482,36 +547,139 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
                 return;
             }
 
-            using var sm = new SmtpClient();
-            if (_settings.Timeout.HasValue)
-            {
-                sm.Timeout = _settings.Timeout.Value;
-            }
-
-            sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
-
-            await sm.ConnectAsync(_settings.Host, _settings.Port, _settings.SecureSocketOptions, cancellationToken).ConfigureAwait(false);
-
-            if (!string.IsNullOrWhiteSpace(_settings.UserName) && !string.IsNullOrWhiteSpace(_settings.Password))
-            {
-                await sm.AuthenticateAsync(new System.Net.NetworkCredential(_settings.UserName, _settings.Password), cancellationToken).ConfigureAwait(false);
-            }
-
-            await sm.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
-            await sm.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
-
+            await SendWithReconnectAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
             if (IsResetedAfterMessageSent)
             {
                 Reset();
             }
-        }
-        finally
-        {
+
             if (disposeMessage)
             {
                 mailMessage.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// Returns a connected (and, when credentials are configured, authenticated) <see cref="SmtpClient"/>.
+    /// The client is created lazily on first use and reused across subsequent sends so that the connection
+    /// and authentication handshake are not repeated for every message. If a previously created client has
+    /// been disconnected (for example by the server), it is transparently reconnected. The client is owned
+    /// by this service and is disposed when the service is disposed.
+    /// </summary>
+    private async Task<SmtpClient> GetConnectedClientAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _smtpClient ??= new SmtpClient();
+
+        if (_settings.Timeout.HasValue)
+        {
+            _smtpClient.Timeout = _settings.Timeout.Value;
+        }
+
+        _smtpClient.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
+
+        if (!_smtpClient.IsConnected)
+        {
+            await _smtpClient.ConnectAsync(_settings.Host, _settings.Port, _settings.SecureSocketOptions, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!_smtpClient.IsAuthenticated && !string.IsNullOrWhiteSpace(_settings.UserName) && !string.IsNullOrWhiteSpace(_settings.Password))
+        {
+            await _smtpClient.AuthenticateAsync(new System.Net.NetworkCredential(_settings.UserName, _settings.Password), cancellationToken).ConfigureAwait(false);
+        }
+
+        return _smtpClient;
+    }
+
+    /// <summary>
+    /// Sends a single message over the persistent client. If the send fails because the pooled
+    /// connection has gone stale (for example the server dropped an idle connection), the client is
+    /// torn down, a fresh connection is established, and the send is retried exactly once.
+    /// </summary>
+    private async Task SendWithReconnectAsync(MimeMessage mailMessage, CancellationToken cancellationToken)
+    {
+        var sm = await GetConnectedClientAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await sm.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsTransientConnectionException(ex))
+        {
+            // The pooled connection was likely stale. Rebuild it and retry the send once.
+            DisposeClient();
+            var retryClient = await GetConnectedClientAsync(cancellationToken).ConfigureAwait(false);
+            await retryClient.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Determines whether an exception indicates the persistent connection is no longer usable and a
+    /// reconnect-and-retry is warranted.
+    /// </summary>
+    private static bool IsTransientConnectionException(Exception ex)
+    {
+        return ex is MailKit.ServiceNotConnectedException
+            or MailKit.Net.Smtp.SmtpProtocolException
+            or System.IO.IOException
+            or System.Net.Sockets.SocketException;
+    }
+
+    /// <summary>
+    /// Disposes and clears the persistent SMTP client so the next send establishes a fresh connection.
+    /// </summary>
+    private void DisposeClient()
+    {
+        if (_smtpClient != null)
+        {
+            _smtpClient.Dispose();
+            _smtpClient = null;
+        }
+    }
+
+    /// <summary>
+    /// Resets the reusable SMTP connection by disposing the current client. The next send will lazily
+    /// establish (and re-authenticate) a brand new connection. Use this to force a clean reconnect, for
+    /// example after changing network conditions or when a long-lived connection may have gone stale.
+    /// Prefer <see cref="ResetConnectionAsync(CancellationToken)"/> so the connection can be closed gracefully.
+    /// </summary>
+    public void ResetConnection()
+    {
+        DisposeClient();
+    }
+
+    /// <summary>
+    /// Asynchronously resets the reusable SMTP connection. When connected, the client is gracefully
+    /// disconnected (SMTP QUIT) and disposed; the next send will lazily establish (and re-authenticate)
+    /// a brand new connection.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the graceful disconnect.</param>
+    /// <returns>A task representing the asynchronous reset operation.</returns>
+    public async Task ResetConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        if (_smtpClient == null)
+        {
+            return;
+        }
+
+        if (_smtpClient.IsConnected)
+        {
+            try
+            {
+                await _smtpClient.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort graceful disconnect; the client is disposed regardless below.
+            }
+        }
+
+        _smtpClient.Dispose();
+        _smtpClient = null;
     }
 
     /// <summary>
@@ -628,7 +796,7 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
     }
 
     /// <summary>
-    /// Releases the file and stream handles held by any pending attachments and linked resources.
+    /// Releases the pending attachments, linked resources, and the reusable SMTP client held by this service.
     /// </summary>
     /// <param name="disposing">True when called from <see cref="Dispose()"/>; false when called from a finalizer.</param>
     protected virtual void Dispose(bool disposing)
@@ -641,14 +809,16 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
         if (disposing)
         {
             DisposeAttachmentsAndResources();
+            DisposeClient();
         }
 
         _disposed = true;
     }
 
     /// <summary>
-    /// Releases all resources used by the <see cref="MailmanService"/>, including any open file
-    /// or stream handles held by pending attachments and linked resources that were not sent.
+    /// Releases all resources used by the <see cref="MailmanService"/>, including the reusable SMTP
+    /// connection and any open file or stream handles held by pending attachments and linked resources
+    /// that were not sent. Prefer <see cref="DisposeAsync"/> so the SMTP connection can be closed gracefully.
     /// </summary>
     public void Dispose()
     {
@@ -657,23 +827,42 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
     }
 
     /// <summary>
-    /// Asynchronously releases the file and stream handles held by any pending attachments and
-    /// linked resources. Override to release additional resources asynchronously in derived types.
+    /// Asynchronously releases resources: disposes any pending attachments and linked resources and,
+    /// when connected, gracefully disconnects (SMTP QUIT) and disposes the reusable SMTP client.
+    /// Override to release additional resources asynchronously in derived types.
     /// </summary>
-    protected virtual ValueTask DisposeAsyncCore()
+    protected virtual async ValueTask DisposeAsyncCore()
     {
         if (!_disposed)
         {
             DisposeAttachmentsAndResources();
+
+            if (_smtpClient != null)
+            {
+                if (_smtpClient.IsConnected)
+                {
+                    try
+                    {
+                        await _smtpClient.DisconnectAsync(true).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Best-effort graceful disconnect; ignore failures during teardown.
+                    }
+                }
+
+                _smtpClient.Dispose();
+                _smtpClient = null;
+            }
+
             _disposed = true;
         }
-
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>
-    /// Asynchronously releases all resources used by the <see cref="MailmanService"/>, including any
-    /// open file or stream handles held by pending attachments and linked resources that were not sent.
+    /// Asynchronously releases all resources used by the <see cref="MailmanService"/>, gracefully closing
+    /// the reusable SMTP connection and releasing any open file or stream handles held by pending
+    /// attachments and linked resources that were not sent.
     /// </summary>
     public async ValueTask DisposeAsync()
     {

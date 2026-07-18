@@ -77,21 +77,12 @@ public static class SetupExtensions
     /// Registers MailmanSettings as a singleton and MailmanService as transient.
     /// </summary>
     /// <param name="services">The service collection to add services to</param>
-    /// <param name="settings">The configured MailmanSettings instance</param>
-    /// <param name="useTransient">Whether to register MailmanService as transient (true) or scoped (false)</param>
-    public static IServiceCollection AddMailman(this IServiceCollection services, MailmanSettings settings, bool useTransient = false)
+    /// <param name="settings">The configured MailmanSettings instance</param>    
+    public static IServiceCollection AddMailman(this IServiceCollection services, MailmanSettings settings)
     {
         services.AddSingleton(settings);
+        services.AddScoped<MailmanService>();
 
-        if(useTransient)
-        {
-            services.AddTransient<MailmanService>();
-        }
-        else
-        {
-            services.AddScoped<MailmanService>();
-        }
-        
         return services;
     }
 }
