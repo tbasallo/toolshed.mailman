@@ -74,7 +74,7 @@ public static class SetupExtensions
 
     /// <summary>
     /// Adds Mailman services to the dependency injection container using a pre-configured MailmanSettings instance.
-    /// Registers MailmanSettings as a singleton and MailmanService as transient.
+    /// Registers MailmanSettings as a singleton and MailmanService as scoped.
     /// </summary>
     /// <param name="services">The service collection to add services to</param>
     /// <param name="settings">The configured MailmanSettings instance</param>    

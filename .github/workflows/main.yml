@@ -29,7 +29,7 @@ jobs:
       id: version
       run: |
         MAJOR=10
-        MINOR=0
+        MINOR=1
         PATCH=$(git rev-list --count HEAD)
         VERSION="$MAJOR.$MINOR.$PATCH"
         echo "version=$VERSION" >> $GITHUB_OUTPUT
