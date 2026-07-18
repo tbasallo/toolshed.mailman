@@ -17,9 +17,10 @@ namespace Toolshed.Mailman;
 /// Initializes a new instance of the MailmanService with the specified settings
 /// </summary>
 /// <param name="settings">The configuration settings for the mail service</param>
-public class MailmanService(MailmanSettings settings)
+public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDisposable
 {
     private readonly MailmanSettings _settings = settings;
+    private bool _disposed;
 
     /// <summary>
     /// The subject line of the email message
@@ -42,11 +43,6 @@ public class MailmanService(MailmanSettings settings)
     public MessagePriority Priority { get; set; } = MessagePriority.Normal;
 
     /// <summary>
-    /// Indicates whether the email body is HTML formatted. Defaults to true.
-    /// </summary>
-    public bool IsBodyHtml { get; set; } = true;
-
-    /// <summary>
     /// When true, the service will automatically reset after sending a message
     /// </summary>
     public bool IsResetedAfterMessageSent { get; set; }
@@ -65,7 +61,7 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="email">The email address to add</param>
     public void AddTo(string email)
     {
-        To.Add(new MailboxAddress(email, email));
+        To.Add(MailboxAddress.Parse(email));
     }
 
     /// <summary>
@@ -84,7 +80,7 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="email">The email address to add</param>
     public void AddCc(string email)
     {
-        CC.Add(new MailboxAddress(email, email));
+        CC.Add(MailboxAddress.Parse(email));
     }
 
     /// <summary>
@@ -103,7 +99,7 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="email">The email address to add</param>
     public void AddBcc(string email)
     {
-        Bcc.Add(new MailboxAddress(email, email));
+        Bcc.Add(MailboxAddress.Parse(email));
     }
 
     /// <summary>
@@ -122,7 +118,7 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="emails">The collection of email addresses to add</param>
     public void AddTo(IEnumerable<string> emails)
     {
-        To.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
+        To.AddRange(emails.Select(MailboxAddress.Parse));
     }
 
     /// <summary>
@@ -131,7 +127,7 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="emails">The collection of email addresses to add</param>
     public void AddCc(IEnumerable<string> emails)
     {
-        CC.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
+        CC.AddRange(emails.Select(MailboxAddress.Parse));
     }
 
     /// <summary>
@@ -140,18 +136,19 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="emails">The collection of email addresses to add</param>
     public void AddBcc(IEnumerable<string> emails)
     {
-        Bcc.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
+        Bcc.AddRange(emails.Select(MailboxAddress.Parse));
     }
 
     MailboxAddress? _From;
     /// <summary>
     /// The primary sender address. If not set, defaults to the FromAddress from settings.
+    /// Returns null when neither an explicit From nor a settings FromAddress is available.
     /// </summary>
-    public MailboxAddress From
+    public MailboxAddress? From
     {
         get
         {
-            if (_From == null)
+            if (_From == null && !string.IsNullOrWhiteSpace(_settings.FromAddress))
             {
                 if (!string.IsNullOrWhiteSpace(_settings.FromDisplayName))
                 {
@@ -159,7 +156,7 @@ public class MailmanService(MailmanSettings settings)
                 }
                 else
                 {
-                    _From = new MailboxAddress(_settings.FromAddress, _settings.FromAddress);
+                    _From = MailboxAddress.Parse(_settings.FromAddress);
                 }
             }
 
@@ -192,7 +189,7 @@ public class MailmanService(MailmanSettings settings)
     public List<MailboxAddress> CC
     {
         get
-        {            
+        {
             _CC ??= [];
             return _CC;
         }
@@ -238,8 +235,10 @@ public class MailmanService(MailmanSettings settings)
     {
         Subject = null;
         ClearRecipients();
-        LinkedResources.Clear();
-        Attachments.Clear();
+        DisposeAttachmentsAndResources();
+
+        Categories = null;
+        InternalCategories = _settings.Categories;
 
         if (resetFrom)
         {
@@ -253,28 +252,13 @@ public class MailmanService(MailmanSettings settings)
     /// </summary>
     public bool IsValidToSend()
     {
-        if (From is null && string.IsNullOrWhiteSpace(_settings.FromAddress))
+        if (_From is null && string.IsNullOrWhiteSpace(_settings.FromAddress))
         {
             return false;
         }
-        if (_To is null && _CC is null && _Bcc is null)
-        {
-            return false;
-        }
-        var recipientValidatedAndItisGood = false;
-        if (_To != null && _To.Count > 0)
-        {
-            recipientValidatedAndItisGood = true;
-        }
-        if (_CC != null && _CC.Count > 0)
-        {
-            recipientValidatedAndItisGood = true;
-        }
-        if (_Bcc != null && _Bcc.Count > 0)
-        {
-            recipientValidatedAndItisGood = true;
-        }
-        if (!recipientValidatedAndItisGood)
+
+        var hasRecipient = (_To?.Count > 0) || (_CC?.Count > 0) || (_Bcc?.Count > 0);
+        if (!hasRecipient)
         {
             return false;
         }
@@ -385,12 +369,9 @@ public class MailmanService(MailmanSettings settings)
     /// <returns>A configured MimeMessage ready for sending</returns>
     public MimeMessage GetMessage(string body, bool isHtml = true)
     {
-        IsBodyHtml = isHtml;
         var message = new MimeMessage
         {
             Subject = Subject,
-            //SubjectEncoding = Encoding,
-            //BodyEncoding = Encoding,
             Priority = Priority,
             Importance = Importance
         };
@@ -398,7 +379,7 @@ public class MailmanService(MailmanSettings settings)
         if (Attachments.Count > 0 || LinkedResources.Count > 0)
         {
             var builder = new BodyBuilder();
-            if (IsBodyHtml)
+            if (isHtml)
             {
                 builder.HtmlBody = body;
             }
@@ -421,7 +402,7 @@ public class MailmanService(MailmanSettings settings)
         }
         else
         {
-            if (IsBodyHtml)
+            if (isHtml)
             {
                 message.Body = new TextPart(TextFormat.Html) { Text = body };
             }
@@ -432,14 +413,10 @@ public class MailmanService(MailmanSettings settings)
         }
 
 
-        if (From != null)
+        var from = From;
+        if (from != null)
         {
-            message.From.Add(From);
-        }
-
-        if (message.From.Count == 0 && !string.IsNullOrWhiteSpace(_settings.FromAddress))
-        {
-            message.From.Add(new MailboxAddress(_settings.FromDisplayName ?? _settings.FromAddress, _settings.FromAddress));
+            message.From.Add(from);
         }
 
         if (_To != null && _To.Count > 0)
@@ -459,8 +436,7 @@ public class MailmanService(MailmanSettings settings)
     }
 
     /// <summary>
-    /// Send a message using the SMTP client. The message can either be a string or HTML.
-    /// There is no longer a method to use a MVC view to create a message. The RazorSlice extensions my be added, but fo rnow they are gone.
+    /// Sends a message using the SMTP client. The body can be either plain text or HTML.
     /// </summary>
     /// <param name="body">The body content of the email</param>
     /// <param name="isHtml">Whether the body content is HTML formatted. Defaults to true.</param>
@@ -469,7 +445,7 @@ public class MailmanService(MailmanSettings settings)
     public Task SendMessageAsync(string body, bool isHtml = true, CancellationToken cancellationToken = default)
     {
         var mailMessage = GetMessage(body, isHtml);
-        return SendCoreAsync(mailMessage, cancellationToken);
+        return SendCoreAsync(mailMessage, disposeMessage: true, cancellationToken);
     }
 
 
@@ -477,48 +453,64 @@ public class MailmanService(MailmanSettings settings)
     /// Sends a pre-configured MimeMessage using the SMTP client
     /// </summary>
     /// <param name="mailMessage">The MimeMessage to send</param>
+    /// <param name="disposeMessage">Disposes the MimeMessage after sending. If you're not using the message after this send, this should be true.</param>
     /// <param name="cancellationToken">A token to cancel the send operation</param>
     /// <returns>A task representing the asynchronous send operation</returns>
-    public Task SendMessageAsync(MimeMessage mailMessage, CancellationToken cancellationToken = default)
+    public Task SendMessageAsync(MimeMessage mailMessage, bool disposeMessage = false, CancellationToken cancellationToken = default)
     {
-        return SendCoreAsync(mailMessage, cancellationToken);
+        return SendCoreAsync(mailMessage, disposeMessage: disposeMessage, cancellationToken);
     }
 
     /// <summary>
     /// Applies the X-SMTPAPI category header (when categories are configured), saves to the pickup
     /// directory or connects and sends the message via SMTP, and optionally resets the service state.
     /// </summary>
-    private async Task SendCoreAsync(MimeMessage mailMessage, CancellationToken cancellationToken)
+    private async Task SendCoreAsync(MimeMessage mailMessage, bool disposeMessage, CancellationToken cancellationToken)
     {
-        ApplyCategories(mailMessage);
-
-        if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
+        try
         {
-            SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation!);
-            return;
+            ApplyCategories(mailMessage);
+
+            if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
+            {
+                if (string.IsNullOrWhiteSpace(_settings.PickupDirectoryLocation))
+                {
+                    throw new InvalidOperationException($"{nameof(MailmanSettings.PickupDirectoryLocation)} must be set when {nameof(MailmanSettings.DeliveryMethod)} is {nameof(System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)}.");
+                }
+
+                SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation);
+                return;
+            }
+
+            using var sm = new SmtpClient();
+            if (_settings.Timeout.HasValue)
+            {
+                sm.Timeout = _settings.Timeout.Value;
+            }
+
+            sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
+
+            await sm.ConnectAsync(_settings.Host, _settings.Port, _settings.SecureSocketOptions, cancellationToken).ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(_settings.UserName) && !string.IsNullOrWhiteSpace(_settings.Password))
+            {
+                await sm.AuthenticateAsync(new System.Net.NetworkCredential(_settings.UserName, _settings.Password), cancellationToken).ConfigureAwait(false);
+            }
+
+            await sm.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+            await sm.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
+
+            if (IsResetedAfterMessageSent)
+            {
+                Reset();
+            }
         }
-
-        using var sm = new SmtpClient();
-        if (_settings.Timeout.HasValue)
+        finally
         {
-            sm.Timeout = _settings.Timeout.Value;
-        }
-
-        sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
-
-        await sm.ConnectAsync(_settings.Host, _settings.Port, _settings.SecureSocketOptions, cancellationToken).ConfigureAwait(false);
-
-        if (!string.IsNullOrWhiteSpace(_settings.UserName) && !string.IsNullOrWhiteSpace(_settings.Password))
-        {
-            await sm.AuthenticateAsync(new System.Net.NetworkCredential(_settings.UserName, _settings.Password), cancellationToken).ConfigureAwait(false);
-        }
-
-        await sm.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
-        await sm.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
-
-        if (IsResetedAfterMessageSent)
-        {
-            Reset();
+            if (disposeMessage)
+            {
+                mailMessage.Dispose();
+            }
         }
     }
 
@@ -529,16 +521,25 @@ public class MailmanService(MailmanSettings settings)
     private void ApplyCategories(MimeMessage mailMessage)
     {
         var categories = !string.IsNullOrWhiteSpace(Categories) ? Categories : InternalCategories;
+
+        // Remove any previously applied header so re-sending the same message does not duplicate it.
+        mailMessage.Headers.RemoveAll("X-SMTPAPI");
+
         if (string.IsNullOrWhiteSpace(categories))
         {
             return;
         }
 
         var items = categories
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(c => "\"" + c.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[" + string.Join(",", items) + "]}");
+        if (items.Length == 0)
+        {
+            return;
+        }
+
+        var payload = System.Text.Json.JsonSerializer.Serialize(new { category = items });
+        mailMessage.Headers.Add("X-SMTPAPI", payload);
     }
 
     private static void SaveToPickupDirectory(MimeMessage message, string pickupDirectory)
@@ -598,5 +599,85 @@ public class MailmanService(MailmanSettings settings)
                 throw;
             }
         } while (true);
+    }
+
+    /// <summary>
+    /// Disposes and clears any attachments and linked resources. These may hold open file or
+    /// stream handles (e.g., from <see cref="AddLinkedResource(string, string?)"/>), so they
+    /// must be released when they are no longer needed.
+    /// </summary>
+    private void DisposeAttachmentsAndResources()
+    {
+        if (LinkedResources != null)
+        {
+            foreach (var resource in LinkedResources)
+            {
+                resource?.Dispose();
+            }
+            LinkedResources.Clear();
+        }
+
+        if (Attachments != null)
+        {
+            foreach (var attachment in Attachments)
+            {
+                attachment?.Dispose();
+            }
+            Attachments.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Releases the file and stream handles held by any pending attachments and linked resources.
+    /// </summary>
+    /// <param name="disposing">True when called from <see cref="Dispose()"/>; false when called from a finalizer.</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            DisposeAttachmentsAndResources();
+        }
+
+        _disposed = true;
+    }
+
+    /// <summary>
+    /// Releases all resources used by the <see cref="MailmanService"/>, including any open file
+    /// or stream handles held by pending attachments and linked resources that were not sent.
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Asynchronously releases the file and stream handles held by any pending attachments and
+    /// linked resources. Override to release additional resources asynchronously in derived types.
+    /// </summary>
+    protected virtual ValueTask DisposeAsyncCore()
+    {
+        if (!_disposed)
+        {
+            DisposeAttachmentsAndResources();
+            _disposed = true;
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Asynchronously releases all resources used by the <see cref="MailmanService"/>, including any
+    /// open file or stream handles held by pending attachments and linked resources that were not sent.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
     }
 }
