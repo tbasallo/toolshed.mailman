@@ -30,9 +30,7 @@ namespace Toolshed.Mailman
         /// <param name="config">The configuration containing a "MailmanSettings" section</param>
         public static void AddMailman(this IServiceCollection services, IConfiguration config)
         {
-            var m = new MailmanSettings();
-            config.GetSection("MailmanSettings").Bind(m);
-            services.AddMailman(m);
+            services.AddMailman(config.GetSection("MailmanSettings"));
         }
 
         /// <summary>
@@ -48,19 +46,6 @@ namespace Toolshed.Mailman
         }
 
         /// <summary>
-        /// Adds Mailman services to the dependency injection container using configuration from IConfigurationRoot.
-        /// Expects a "MailmanSettings" section in the configuration.
-        /// </summary>
-        /// <param name="services">The service collection to add services to</param>
-        /// <param name="config">The configuration root containing a "MailmanSettings" section</param>
-        public static void AddMailman(this IServiceCollection services, IConfigurationRoot config)
-        {
-            var m = new MailmanSettings();
-            config.GetSection("MailmanSettings").Bind(m);
-            services.AddMailman(m);
-        }
-
-        /// <summary>
         /// Adds Mailman services to the dependency injection container using IConfiguration with additional configuration action.
         /// Settings from configuration are applied first, then the action is invoked for further customization.
         /// </summary>
@@ -69,10 +54,7 @@ namespace Toolshed.Mailman
         /// <param name="configureOptions">An action to further configure or override the MailmanSettings</param>
         public static void AddMailman(this IServiceCollection services, IConfiguration config, Action<MailmanSettings> configureOptions)
         {
-            var m = new MailmanSettings();
-            config.GetSection("MailmanSettings").Bind(m);
-            configureOptions.Invoke(m);
-            services.AddMailman(m);
+            services.AddMailman(config.GetSection("MailmanSettings"), configureOptions);
         }
 
         /// <summary>
@@ -86,21 +68,6 @@ namespace Toolshed.Mailman
         {
             var m = new MailmanSettings();
             configSection.Bind(m);
-            configureOptions.Invoke(m);
-            services.AddMailman(m);
-        }
-
-        /// <summary>
-        /// Adds Mailman services to the dependency injection container using IConfigurationRoot with additional configuration action.
-        /// Settings from configuration are applied first, then the action is invoked for further customization.
-        /// </summary>
-        /// <param name="services">The service collection to add services to</param>
-        /// <param name="config">The configuration root containing a "MailmanSettings" section</param>
-        /// <param name="configureOptions">An action to further configure or override the MailmanSettings</param>
-        public static void AddMailman(this IServiceCollection services, IConfigurationRoot config, Action<MailmanSettings> configureOptions)
-        {
-            var m = new MailmanSettings();
-            config.GetSection("MailmanSettings").Bind(m);
             configureOptions.Invoke(m);
             services.AddMailman(m);
         }

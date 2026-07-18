@@ -1,4 +1,5 @@
 ﻿using System.Net.Mail;
+using MailKit.Security;
 
 namespace Toolshed.Mailman
 {
@@ -10,7 +11,7 @@ namespace Toolshed.Mailman
         /// <summary>
         /// The directory path where email messages are saved when using SpecifiedPickupDirectory delivery method
         /// </summary>
-        public string PickupDirectoryLocation { get; set; }
+        public string? PickupDirectoryLocation { get; set; }
 
         /// <summary>
         /// This uses .NET delivery method because MimeKit doesn't have a version of this, so we'll keep using instead of creating our own
@@ -20,17 +21,17 @@ namespace Toolshed.Mailman
         /// <summary>
         /// The username authentication
         /// </summary>
-        public string UserName { get; set; }
+        public string? UserName { get; set; }
 
         /// <summary>
         /// The password authentication
         /// </summary>
-        public string Password { get; set; }
+        public string? Password { get; set; }
 
         /// <summary>
         /// The server hostname or IP address
         /// </summary>
-        public string Host { get; set; }
+        public string? Host { get; set; }
 
         /// <summary>
         /// The server port. Defaults to 25.
@@ -45,17 +46,17 @@ namespace Toolshed.Mailman
         /// <summary>
         /// The default sender email address used when From is not explicitly set
         /// </summary>
-        public string FromAddress { get; set; }
+        public string? FromAddress { get; set; }
 
         /// <summary>
         /// The default sender display name used when From is not explicitly set
         /// </summary>
-        public string FromDisplayName { get; set; }
+        public string? FromDisplayName { get; set; }
 
         /// <summary>
         /// A comma delimited list of values to add to the X-SMTPAPI header when the email is sent
         /// </summary>
-        public string Categories { get; set; }
+        public string? Categories { get; set; }
 
         /// <summary>
         /// Gets or sets whether connecting via SSL/TLS should check certificate revocation.
@@ -63,5 +64,11 @@ namespace Toolshed.Mailman
         /// CRL/OCSP servers are unreachable, which can cause SslHandshakeException.
         /// </summary>
         public bool CheckCertificateRevocation { get; set; } = true;
+
+        /// <summary>
+        /// The SSL/TLS socket options used when connecting to the SMTP server. Defaults to
+        /// <see cref="SecureSocketOptions.Auto"/>, which lets MailKit choose the best option for the port.
+        /// </summary>
+        public SecureSocketOptions SecureSocketOptions { get; set; } = SecureSocketOptions.Auto;
     }
 }

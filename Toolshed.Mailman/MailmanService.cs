@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Toolshed.Mailman;
@@ -23,12 +24,12 @@ public class MailmanService(MailmanSettings settings)
     /// <summary>
     /// The subject line of the email message
     /// </summary>
-    public string Subject { get; set; }
+    public string? Subject { get; set; }
 
     /// <summary>
     /// The name of the view to use for rendering the email body
     /// </summary>
-    public string ViewName { get; set; }
+    public string? ViewName { get; set; }
 
     /// <summary>
     /// The importance level of the email message. Defaults to Normal.
@@ -53,9 +54,9 @@ public class MailmanService(MailmanSettings settings)
     /// <summary>
     /// A list of categories to add to X-SMTPAPI header. This will overwrite any categories provided by the settings. To keep the current categories, use the AddCategory() method
     /// </summary>
-    public string Categories { get; set; }
+    public string? Categories { get; set; }
 
-    private string InternalCategories { get; set; } = settings.Categories;
+    private string? InternalCategories { get; set; } = settings.Categories;
 
 
     /// <summary>
@@ -142,7 +143,7 @@ public class MailmanService(MailmanSettings settings)
         Bcc.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
     }
 
-    MailboxAddress _From;
+    MailboxAddress? _From;
     /// <summary>
     /// The primary sender address. If not set, defaults to the FromAddress from settings.
     /// </summary>
@@ -167,7 +168,7 @@ public class MailmanService(MailmanSettings settings)
         set { _From = value; }
     }
 
-    List<MailboxAddress> _To;
+    List<MailboxAddress>? _To;
     /// <summary>
     /// The list of primary recipients (To addresses)
     /// </summary>
@@ -184,7 +185,7 @@ public class MailmanService(MailmanSettings settings)
         }
     }
 
-    List<MailboxAddress> _CC;
+    List<MailboxAddress>? _CC;
     /// <summary>
     /// The list of CC (carbon copy) recipients
     /// </summary>
@@ -201,7 +202,7 @@ public class MailmanService(MailmanSettings settings)
         }
     }
 
-    List<MailboxAddress> _Bcc;
+    List<MailboxAddress>? _Bcc;
     /// <summary>
     /// The list of BCC (blind carbon copy) recipients
     /// </summary>
@@ -242,7 +243,7 @@ public class MailmanService(MailmanSettings settings)
 
         if (resetFrom)
         {
-            From = null;
+            _From = null;
         }
     }
 
@@ -281,6 +282,10 @@ public class MailmanService(MailmanSettings settings)
         {
             return false;
         }
+        if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory && string.IsNullOrWhiteSpace(_settings.PickupDirectoryLocation))
+        {
+            return false;
+        }
 
         return true;
     }
@@ -301,7 +306,7 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="filePath">The path to the image file</param>
     /// <param name="contentType">Optional content type (e.g., "image/png"). If not provided, it will be inferred from the file extension.</param>
     /// <returns>The Content-Id to reference in HTML</returns>
-    public string AddLinkedResource(string filePath, string contentType = null)
+    public string AddLinkedResource(string filePath, string? contentType = null)
     {
         var mimeType = contentType ?? MimeTypes.GetMimeType(filePath);
 
@@ -457,52 +462,14 @@ public class MailmanService(MailmanSettings settings)
     /// Send a message using the SMTP client. The message can either be a string or HTML.
     /// There is no longer a method to use a MVC view to create a message. The RazorSlice extensions my be added, but fo rnow they are gone.
     /// </summary>
-    /// <param name="body"></param>
-    /// <param name="isHtml"></param>
-    /// <returns></returns>
-    public async Task SendMessageAsync(string body, bool isHtml = true)
+    /// <param name="body">The body content of the email</param>
+    /// <param name="isHtml">Whether the body content is HTML formatted. Defaults to true.</param>
+    /// <param name="cancellationToken">A token to cancel the send operation</param>
+    /// <returns>A task representing the asynchronous send operation</returns>
+    public Task SendMessageAsync(string body, bool isHtml = true, CancellationToken cancellationToken = default)
     {
         var mailMessage = GetMessage(body, isHtml);
-
-        if (!string.IsNullOrWhiteSpace(Categories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
-        }
-        else if (!string.IsNullOrWhiteSpace(InternalCategories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
-        }
-
-        if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
-        {
-            SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation);
-            return;
-        }
-
-        using (var sm = new SmtpClient { })
-        {
-            if (_settings.Timeout.HasValue)
-            {
-                sm.Timeout = _settings.Timeout.Value;
-            }
-
-            sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
-
-            await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
-
-            if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
-            {
-                sm.Authenticate(new System.Net.NetworkCredential(_settings.UserName, _settings.Password));
-            }
-
-            await sm.SendAsync(mailMessage);
-            await sm.DisconnectAsync(true);
-        }
-
-        if (IsResetedAfterMessageSent)
-        {
-            Reset();
-        }
+        return SendCoreAsync(mailMessage, cancellationToken);
     }
 
 
@@ -510,53 +477,68 @@ public class MailmanService(MailmanSettings settings)
     /// Sends a pre-configured MimeMessage using the SMTP client
     /// </summary>
     /// <param name="mailMessage">The MimeMessage to send</param>
+    /// <param name="cancellationToken">A token to cancel the send operation</param>
     /// <returns>A task representing the asynchronous send operation</returns>
-    public async Task SendMessageAsync(MimeMessage mailMessage)
+    public Task SendMessageAsync(MimeMessage mailMessage, CancellationToken cancellationToken = default)
     {
-        if (!string.IsNullOrWhiteSpace(Categories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
-        }
-        else if (!string.IsNullOrWhiteSpace(InternalCategories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
-        }
+        return SendCoreAsync(mailMessage, cancellationToken);
+    }
 
-        if (Attachments.Count > 0)
-        {
-
-        }
+    /// <summary>
+    /// Applies the X-SMTPAPI category header (when categories are configured), saves to the pickup
+    /// directory or connects and sends the message via SMTP, and optionally resets the service state.
+    /// </summary>
+    private async Task SendCoreAsync(MimeMessage mailMessage, CancellationToken cancellationToken)
+    {
+        ApplyCategories(mailMessage);
 
         if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
         {
-            SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation);
+            SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation!);
             return;
         }
 
-        using (var sm = new SmtpClient { })
+        using var sm = new SmtpClient();
+        if (_settings.Timeout.HasValue)
         {
-            if (_settings.Timeout.HasValue)
-            {
-                sm.Timeout = _settings.Timeout.Value;
-            }
-
-            sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
-
-            await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
-
-            if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
-            {
-                sm.Authenticate(new System.Net.NetworkCredential(_settings.UserName, _settings.Password));
-            }
-
-            await sm.SendAsync(mailMessage);
-            await sm.DisconnectAsync(true);
+            sm.Timeout = _settings.Timeout.Value;
         }
+
+        sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
+
+        await sm.ConnectAsync(_settings.Host, _settings.Port, _settings.SecureSocketOptions, cancellationToken).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(_settings.UserName) && !string.IsNullOrWhiteSpace(_settings.Password))
+        {
+            await sm.AuthenticateAsync(new System.Net.NetworkCredential(_settings.UserName, _settings.Password), cancellationToken).ConfigureAwait(false);
+        }
+
+        await sm.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+        await sm.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
 
         if (IsResetedAfterMessageSent)
         {
             Reset();
         }
+    }
+
+    /// <summary>
+    /// Adds the X-SMTPAPI header with a properly formatted JSON array of categories when any are configured.
+    /// The instance <see cref="Categories"/> takes precedence over categories provided via settings.
+    /// </summary>
+    private void ApplyCategories(MimeMessage mailMessage)
+    {
+        var categories = !string.IsNullOrWhiteSpace(Categories) ? Categories : InternalCategories;
+        if (string.IsNullOrWhiteSpace(categories))
+        {
+            return;
+        }
+
+        var items = categories
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(c => "\"" + c.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
+
+        mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[" + string.Join(",", items) + "]}");
     }
 
     private static void SaveToPickupDirectory(MimeMessage message, string pickupDirectory)
