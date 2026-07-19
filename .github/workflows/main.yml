@@ -46,3 +46,15 @@ jobs:
 
     - name: Publish to NuGet
       run: dotnet nuget push Toolshed.Mailman/bin/Release/*.nupkg --api-key ${{ secrets.NUGET_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+    - name: Restore dependencies (AwsSes)
+      run: dotnet restore Toolshed.Mailman.AwsSes/Toolshed.Mailman.AwsSes.csproj
+
+    - name: Build (AwsSes)
+      run: dotnet build Toolshed.Mailman.AwsSes/Toolshed.Mailman.AwsSes.csproj -c Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+    - name: Pack (AwsSes)
+      run: dotnet pack Toolshed.Mailman.AwsSes/Toolshed.Mailman.AwsSes.csproj -c Release --no-build -p:PackageVersion=${{ steps.version.outputs.version }}
+
+    - name: Publish to NuGet (AwsSes)
+      run: dotnet nuget push Toolshed.Mailman.AwsSes/bin/Release/*.nupkg --api-key ${{ secrets.NUGET_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

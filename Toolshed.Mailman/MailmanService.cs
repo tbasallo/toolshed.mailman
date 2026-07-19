@@ -372,11 +372,11 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
     /// <param name="body">The body content of the email</param>
     /// <param name="isHtml">Whether the body content is HTML formatted. Defaults to true.</param>
     /// <returns>A configured MimeMessage ready for sending</returns>
-    public MimeMessage GetMessage(string body, bool isHtml = true)
+    public MimeMessage GetMessage(string body, bool isHtml = true, string? subject = null)
     {
         var message = new MimeMessage
         {
-            Subject = Subject,
+            Subject =  subject ?? Subject!,
             Priority = Priority,
             Importance = Importance
         };
@@ -568,6 +568,7 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
     private async Task<SmtpClient> GetConnectedClientAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_Disposed, this);
+        ArgumentNullException.ThrowIfNull(_Settings.Host, nameof(_Settings.Host));
 
         _SmtpClient ??= new SmtpClient();
 
