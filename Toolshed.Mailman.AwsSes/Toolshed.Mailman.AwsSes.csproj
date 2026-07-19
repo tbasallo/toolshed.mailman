@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>10.0.0</Version>
+    <FileVersion>10.0.0.0</FileVersion>
+    <Authors>Tony Basallo</Authors>
+    <PackageProjectUrl>https://github.com/tbasallo/toolshed.mailman</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/tbasallo/toolshed.mailman</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>email;mail;aws;ses;amazon;simpleemail;mimekit;aspnetcore</PackageTags>
+    <Description>A library to assist with sending mail in ASP.NET Core using the Amazon SES (Simple Email Service) API and MimeKit.</Description>
+    <PackageReleaseNotes>Initial release adding Amazon SES API support.</PackageReleaseNotes>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.SimpleEmailV2" Version="4.0.100.5" />
+    <PackageReference Include="MimeKit" Version="4.17.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.301" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Toolshed.Mailman\Toolshed.Mailman.csproj" />
+  </ItemGroup>
+
+</Project>

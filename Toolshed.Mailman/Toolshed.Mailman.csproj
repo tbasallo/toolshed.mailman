@@ -6,7 +6,7 @@
 		<ImplicitUsings>disable</ImplicitUsings>
 		<Version>10.0.0</Version>
 		<FileVersion>10.0.0.0</FileVersion>
-		<Authors>Tomas Basallo</Authors>
+		<Authors>Tony Basallo</Authors>
 		<PackageProjectUrl>https://github.com/tbasallo/toolshed.mailman</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/tbasallo/toolshed.mailman</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
