@@ -25,7 +25,7 @@ namespace Toolshed.Mailman;
 /// </para>
 /// </summary>
 /// <param name="settings">The configuration settings for the mail service</param>
-public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDisposable
+public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDisposable, IAsyncDisposable
 {
     #region Fields
 
@@ -695,95 +695,8 @@ public class MailmanService(MailmanSettings settings) : IDisposable, IAsyncDispo
 
     #region Helpers
 
-    /// <summary>
-    /// Adds the X-SMTPAPI header with a properly formatted JSON array of categories when any are configured.
-    /// The instance <see cref="Categories"/> takes precedence over categories provided via settings.
-    /// </summary>
-    private void ApplyCategories(MimeMessage mailMessage)
-    {
-        if (string.IsNullOrWhiteSpace(Categories))
-        {
-            return;
-        }
 
-        // Remove any previously applied header so re-sending the same message does not duplicate it.
-        mailMessage.Headers.RemoveAll("X-SMTPAPI");
 
-        if (string.IsNullOrWhiteSpace(Categories))
-        {
-            return;
-        }
-
-        var items = Categories
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        if (items.Length == 0)
-        {
-            return;
-        }
-
-        var payload = System.Text.Json.JsonSerializer.Serialize(new { category = items });
-        mailMessage.Headers.Add("X-SMTPAPI", payload);
-    }
-
-    private static void SaveToPickupDirectory(MimeMessage message, string pickupDirectory)
-    {
-        do
-        {
-            // Generate a random file name to save the message to.
-            var path = Path.Combine(pickupDirectory, Guid.NewGuid().ToString() + ".eml");
-            Stream stream;
-
-            try
-            {
-                // Attempt to create the new file.
-                stream = File.Open(path, FileMode.CreateNew);
-            }
-            catch (IOException)
-            {
-                // If the file already exists, try again with a new Guid.
-                if (File.Exists(path))
-                    continue;
-
-                // Otherwise, fail immediately since it probably means that there is
-                // no graceful way to recover from this error.
-                throw;
-            }
-
-            try
-            {
-                using (stream)
-                {
-                    // IIS pickup directories expect the message to be "byte-stuffed"
-                    // which means that lines beginning with "." need to be escaped
-                    // by adding an extra "." to the beginning of the line.
-                    //
-                    // Use an SmtpDataFilter "byte-stuff" the message as it is written
-                    // to the file stream. This is the same process that an SmtpClient
-                    // would use when sending the message in a `DATA` command.
-                    using var filtered = new FilteredStream(stream);
-                    filtered.Add(new SmtpDataFilter());
-
-                    // Make sure to write the message in DOS (<CR><LF>) format.
-                    var options = FormatOptions.Default.Clone();
-                    options.NewLineFormat = NewLineFormat.Dos;
-
-                    message.WriteTo(options, filtered);
-                    filtered.Flush();
-                    return;
-                }
-            }
-            catch
-            {
-                // An exception here probably means that the disk is full.
-                //
-                // Delete the file that was created above so that incomplete files are not
-                // left behind for IIS to send accidentally.
-                File.Delete(path);
-                throw;
-            }
-        } while (true);
-    }
 
     /// <summary>
     /// Disposes and clears any attachments and linked resources. These may hold open file or

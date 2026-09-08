@@ -21,7 +21,7 @@ namespace Toolshed.Mailman.AwsSes;
 /// </para>
 /// </summary>
 /// <param name="settings">The configuration settings for the SES mail service.</param>
-public class AwsSesMailmanService(AwsSesSettings settings) : IDisposable
+public class AwsSesMailmanService(AwsSesSettings settings) : MailmanBaseService, IDisposable
 {
     #region Fields
 
@@ -453,6 +453,18 @@ public class AwsSesMailmanService(AwsSesSettings settings) : IDisposable
     {
         try
         {
+            if (_Settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
+            {
+                if (string.IsNullOrWhiteSpace(_Settings.PickupDirectoryLocation))
+                {
+                    throw new InvalidOperationException($"{nameof(MailmanSettings.PickupDirectoryLocation)} must be set when {nameof(MailmanSettings.DeliveryMethod)} is {nameof(System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)}.");
+                }
+
+                ApplyCategories(mailMessage, _Settings.Categories);
+                SaveToPickupDirectory(mailMessage, _Settings.PickupDirectoryLocation);
+                return new SendEmailResponse() { HttpStatusCode = System.Net.HttpStatusCode.OK };
+            }
+
             var client = GetClient();
 
             using var stream = new MemoryStream();

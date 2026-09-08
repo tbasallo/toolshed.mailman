@@ -1,3 +1,5 @@
+using System.Net.Mail;
+
 using Amazon;
 
 namespace Toolshed.Mailman.AwsSes;
@@ -70,6 +72,16 @@ public class AwsSesSettings
     /// The timeout in milliseconds for SES API calls. If null, the AWS SDK default timeout is used.
     /// </summary>
     public int? Timeout { get; set; }
+
+    /// <summary>
+    /// This uses .NET delivery method because AWS SES has no concept of this. This is a runtime/local dev option to view emails being send instead of actually sending them.
+    /// </summary>
+    public SmtpDeliveryMethod DeliveryMethod { get; set; }
+
+    /// <summary>
+    /// The directory path where email messages are saved when using SpecifiedPickupDirectory delivery method
+    /// </summary>
+    public string? PickupDirectoryLocation { get; set; }
 
     /// <summary>
     /// Resolves the configured <see cref="RegionEndpoint"/> from <see cref="Region"/>, or null when no
