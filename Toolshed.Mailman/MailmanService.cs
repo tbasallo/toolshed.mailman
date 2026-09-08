@@ -496,7 +496,7 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
             foreach (var message in mailMessages)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                ApplyCategories(message);
+                ApplyCategories(message, Categories);
                 SaveToPickupDirectory(message, _Settings.PickupDirectoryLocation);
                 if (disposeMessages)
                 {
@@ -511,7 +511,7 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
         foreach (var message in mailMessages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ApplyCategories(message);
+            ApplyCategories(message, Categories);
             await SendWithReconnectAsync(message, cancellationToken).ConfigureAwait(false);
             if (disposeMessages)
             {
@@ -529,7 +529,7 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
     {
         try
         {
-            ApplyCategories(mailMessage);
+            ApplyCategories(mailMessage, Categories);
 
             if (_Settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
             {

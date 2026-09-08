@@ -1,4 +1,6 @@
 ﻿using System.Net.Mail;
+using System.Threading.Tasks;
+
 using MailKit.Security;
 
 namespace Toolshed.Mailman;
@@ -70,4 +72,21 @@ public class MailmanSettings
     /// <see cref="SecureSocketOptions.Auto"/>, which lets MailKit choose the best option for the port.
     /// </summary>
     public SecureSocketOptions SecureSocketOptions { get; set; } = SecureSocketOptions.Auto;
+
+    /// <summary>
+    /// Send a single email without all the hoopla
+    /// </summary>
+    /// <param name="email"></param>
+    /// <param name="subject"></param>
+    /// <param name="body"></param>
+    /// <param name="categories"></param>
+    /// <returns></returns>
+    public async Task QuickSend(string email, string subject, string body, string? categories = null)
+    {
+        using var mailman = new MailmanService(this);
+        mailman.AddTo(email);
+        mailman.Subject = subject;
+        mailman.Categories = categories;
+        await mailman.SendMessageAsync(body);
+    }
 }

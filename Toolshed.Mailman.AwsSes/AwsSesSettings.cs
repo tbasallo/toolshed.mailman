@@ -91,4 +91,21 @@ public class AwsSesSettings
     {
         return string.IsNullOrWhiteSpace(Region) ? null : RegionEndpoint.GetBySystemName(Region);
     }
+
+    /// <summary>
+    /// Send a single email without all the hoopla
+    /// </summary>
+    /// <param name="email"></param>
+    /// <param name="subject"></param>
+    /// <param name="body"></param>
+    /// <param name="categories"></param>
+    /// <returns></returns>
+    public async Task QuickSend(string email, string subject, string body, string? categories = null)
+    {
+        using var mailman = new AwsSesMailmanService(this);
+        mailman.AddTo(email);
+        mailman.Subject = subject;
+        mailman.Categories = categories;
+        await mailman.SendMessageAsync(body);
+    }
 }
