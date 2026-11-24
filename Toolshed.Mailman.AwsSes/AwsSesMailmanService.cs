@@ -339,7 +339,7 @@ public class AwsSesMailmanService(AwsSesSettings settings) : MailmanBaseService,
     {
         var message = new MimeMessage
         {
-            Subject = Subject,
+            Subject = Subject ?? throw new InvalidOperationException($"A subject is required. Set {nameof(Subject)}."),
             Priority = Priority,
             Importance = Importance
         };
@@ -460,7 +460,7 @@ public class AwsSesMailmanService(AwsSesSettings settings) : MailmanBaseService,
                     throw new InvalidOperationException($"{nameof(MailmanSettings.PickupDirectoryLocation)} must be set when {nameof(MailmanSettings.DeliveryMethod)} is {nameof(System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)}.");
                 }
 
-                ApplyCategories(mailMessage, _Settings.Categories);
+                ApplyCategories(mailMessage, !string.IsNullOrWhiteSpace(Categories) ? Categories : _Settings.Categories);
                 SaveToPickupDirectory(mailMessage, _Settings.PickupDirectoryLocation);
                 return new SendEmailResponse() { HttpStatusCode = System.Net.HttpStatusCode.OK };
             }

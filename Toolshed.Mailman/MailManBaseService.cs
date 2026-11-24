@@ -81,8 +81,9 @@ public class MailmanBaseService
 
     /// <summary>
     /// Adds the X-SMTPAPI header with a properly formatted JSON array of categories when any are configured.
-    /// The instance <see cref="Categories"/> takes precedence over categories provided via settings.
     /// </summary>
+    /// <param name="mailMessage">The message to add the header to.</param>
+    /// <param name="categories">A comma delimited list of categories. Nothing is changed when null or blank.</param>
     public void ApplyCategories(MimeMessage mailMessage, string? categories)
     {
         if (string.IsNullOrWhiteSpace(categories))

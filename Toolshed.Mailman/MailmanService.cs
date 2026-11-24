@@ -61,9 +61,15 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
     public bool IsResetedAfterMessageSent { get; set; }
 
     /// <summary>
-    /// A list of categories to add to X-SMTPAPI header. This will overwrite any categories provided by the settings. To keep the current categories, use the AddCategory() method
+    /// A comma delimited list of categories to add to the X-SMTPAPI header. This overrides any categories
+    /// provided by the settings. To keep the settings categories, leave this null.
     /// </summary>
     public string? Categories { get; set; }
+
+    /// <summary>
+    /// The instance <see cref="Categories"/> when set; otherwise the settings categories.
+    /// </summary>
+    private string? EffectiveCategories => !string.IsNullOrWhiteSpace(Categories) ? Categories : _Settings.Categories;
 
     #endregion
 
@@ -372,12 +378,13 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
     /// </summary>
     /// <param name="body">The body content of the email</param>
     /// <param name="isHtml">Whether the body content is HTML formatted. Defaults to true.</param>
+    /// <param name="subject">The subject line for this message. Falls back to <see cref="Subject"/> when null.</param>
     /// <returns>A configured MimeMessage ready for sending</returns>
     public MimeMessage GetMessage(string body, bool isHtml = true, string? subject = null)
     {
         var message = new MimeMessage
         {
-            Subject =  subject ?? Subject!,
+            Subject = subject ?? Subject ?? throw new InvalidOperationException($"A subject is required. Set {nameof(Subject)} or pass {nameof(subject)}."),
             Priority = Priority,
             Importance = Importance
         };
@@ -497,7 +504,7 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
             foreach (var message in mailMessages)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                ApplyCategories(message, Categories);
+                ApplyCategories(message, EffectiveCategories);
                 SaveToPickupDirectory(message, _Settings.PickupDirectoryLocation);
                 if (disposeMessages)
                 {
@@ -512,7 +519,7 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
         foreach (var message in mailMessages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ApplyCategories(message, Categories);
+            ApplyCategories(message, EffectiveCategories);
             await SendWithReconnectAsync(message, cancellationToken).ConfigureAwait(false);
             if (disposeMessages)
             {
@@ -530,7 +537,7 @@ public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDis
     {
         try
         {
-            ApplyCategories(mailMessage, Categories);
+            ApplyCategories(mailMessage, EffectiveCategories);
 
             if (_Settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
             {
