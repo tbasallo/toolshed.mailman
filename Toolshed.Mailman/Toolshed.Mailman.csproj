@@ -2,16 +2,24 @@
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
-		<Version>10.0</Version>
-		<FileVersion>10.0</FileVersion>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Version>10.0.0</Version>
+		<FileVersion>10.0.0.0</FileVersion>
+		<Authors>Tony Basallo</Authors>
 		<PackageProjectUrl>https://github.com/tbasallo/toolshed.mailman</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/tbasallo/toolshed.mailman</RepositoryUrl>
-		<PackageLicenseUrl></PackageLicenseUrl>
-		<Description>A library to assist with sending mail in ASP.NET Core using MailKit and Razor Views.</Description>
-		<ApplicationIcon />
-		<OutputType>Library</OutputType>
-		<StartupObject />
-		<PackageReleaseNotes>Updated to .net10 and razorSlices. If your views use layout and other non-supported features, do not upgrade.</PackageReleaseNotes>
+		<RepositoryType>git</RepositoryType>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageTags>email;mail;smtp;mailkit;mimekit;aspnetcore</PackageTags>
+		<Description>A library to assist with sending mail in ASP.NET Core using MailKit and MimeKit.</Description>
+		<PackageReleaseNotes>Updated to .NET 10. Added batch sending over a single SMTP connection.</PackageReleaseNotes>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<IncludeSymbols>true</IncludeSymbols>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		<ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -19,6 +27,7 @@
 		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="11.0.0" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="11.0.0" />
+		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
 	</ItemGroup>
 
 </Project>

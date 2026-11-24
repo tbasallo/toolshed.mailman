@@ -1,4 +1,4 @@
-﻿using MailKit;
+using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
@@ -9,27 +9,39 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Toolshed.Mailman;
 
 /// <summary>
-/// Initializes a new instance of the MailmanService with the specified settings
+/// Builds and sends email messages via MailKit/MimeKit using the supplied <see cref="MailmanSettings"/>.
+/// The service holds message state (subject, recipients, attachments, categories) and a reusable SMTP
+/// connection that is created lazily on first send and reused across subsequent sends for efficiency.
+/// <para>
+/// This type is <b>not thread-safe</b>: it maintains mutable message state and a single shared SMTP
+/// client, so a given instance must not be used concurrently from multiple threads. Register/resolve
+/// one instance per logical unit of work and dispose it (preferably via <c>await using</c>) so the
+/// underlying SMTP connection is released.
+/// </para>
 /// </summary>
 /// <param name="settings">The configuration settings for the mail service</param>
-public class MailmanService(MailmanSettings settings)
+public class MailmanService(MailmanSettings settings) : MailmanBaseService, IDisposable, IAsyncDisposable
 {
-    private readonly MailmanSettings _settings = settings;
+    #region Fields
+
+    private readonly MailmanSettings _Settings = settings;
+    private SmtpClient? _SmtpClient;
+    private bool _Disposed;
+
+    #endregion
+
+    #region Message Properties
 
     /// <summary>
     /// The subject line of the email message
     /// </summary>
-    public string Subject { get; set; }
-
-    /// <summary>
-    /// The name of the view to use for rendering the email body
-    /// </summary>
-    public string ViewName { get; set; }
+    public string? Subject { get; set; }
 
     /// <summary>
     /// The importance level of the email message. Defaults to Normal.
@@ -42,124 +54,39 @@ public class MailmanService(MailmanSettings settings)
     public MessagePriority Priority { get; set; } = MessagePriority.Normal;
 
     /// <summary>
-    /// Indicates whether the email body is HTML formatted. Defaults to true.
-    /// </summary>
-    public bool IsBodyHtml { get; set; } = true;
-
-    /// <summary>
-    /// When true, the service will automatically reset after sending a message
+    /// When true, the service automatically calls <see cref="Reset(bool)"/> after a message is sent,
+    /// clearing the subject, recipients, attachments, and categories. The reusable SMTP connection is
+    /// left intact so it can be reused by the next send.
     /// </summary>
     public bool IsResetedAfterMessageSent { get; set; }
 
     /// <summary>
     /// A list of categories to add to X-SMTPAPI header. This will overwrite any categories provided by the settings. To keep the current categories, use the AddCategory() method
     /// </summary>
-    public string Categories { get; set; }
+    public string? Categories { get; set; }
 
-    private string InternalCategories { get; set; } = settings.Categories;
+    #endregion
 
+    #region Recipients
 
-    /// <summary>
-    /// Adds a recipient email address to the To list
-    /// </summary>
-    /// <param name="email">The email address to add</param>
-    public void AddTo(string email)
-    {
-        To.Add(new MailboxAddress(email, email));
-    }
-
-    /// <summary>
-    /// Adds a recipient with display name and email address to the To list
-    /// </summary>
-    /// <param name="name">The display name of the recipient</param>
-    /// <param name="email">The email address of the recipient</param>
-    public void AddTo(string name, string email)
-    {
-        To.Add(new MailboxAddress(name, email));
-    }
-
-    /// <summary>
-    /// Adds a CC recipient email address
-    /// </summary>
-    /// <param name="email">The email address to add</param>
-    public void AddCc(string email)
-    {
-        CC.Add(new MailboxAddress(email, email));
-    }
-
-    /// <summary>
-    /// Adds a CC recipient with display name and email address
-    /// </summary>
-    /// <param name="name">The display name of the recipient</param>
-    /// <param name="email">The email address of the recipient</param>
-    public void AddCc(string name, string email)
-    {
-        CC.Add(new MailboxAddress(name, email));
-    }
-
-    /// <summary>
-    /// Adds a BCC recipient email address
-    /// </summary>
-    /// <param name="email">The email address to add</param>
-    public void AddBcc(string email)
-    {
-        Bcc.Add(new MailboxAddress(email, email));
-    }
-
-    /// <summary>
-    /// Adds a BCC recipient with display name and email address
-    /// </summary>
-    /// <param name="name">The display name of the recipient</param>
-    /// <param name="email">The email address of the recipient</param>
-    public void AddBcc(string name, string email)
-    {
-        Bcc.Add(new MailboxAddress(name, email));
-    }
-
-    /// <summary>
-    /// Adds multiple recipient email addresses to the To list
-    /// </summary>
-    /// <param name="emails">The collection of email addresses to add</param>
-    public void AddTo(IEnumerable<string> emails)
-    {
-        To.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
-    }
-
-    /// <summary>
-    /// Adds multiple CC recipient email addresses
-    /// </summary>
-    /// <param name="emails">The collection of email addresses to add</param>
-    public void AddCc(IEnumerable<string> emails)
-    {
-        CC.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
-    }
-
-    /// <summary>
-    /// Adds multiple BCC recipient email addresses
-    /// </summary>
-    /// <param name="emails">The collection of email addresses to add</param>
-    public void AddBcc(IEnumerable<string> emails)
-    {
-        Bcc.AddRange(emails.Select(email => new MailboxAddress(email, email)).ToList());
-    }
-
-    MailboxAddress _From;
+    MailboxAddress? _From;
     /// <summary>
     /// The primary sender address. If not set, defaults to the FromAddress from settings.
+    /// Returns null when neither an explicit From nor a settings FromAddress is available.
     /// </summary>
-    public MailboxAddress From
+    public MailboxAddress? From
     {
         get
         {
-            if (_From == null)
+            if (_From == null && !string.IsNullOrWhiteSpace(_Settings.FromAddress))
             {
-                if (!string.IsNullOrWhiteSpace(_settings.FromDisplayName))
+                if (!string.IsNullOrWhiteSpace(_Settings.FromDisplayName))
                 {
-                    _From = new MailboxAddress(_settings.FromDisplayName, _settings.FromAddress);
+                    _From = new MailboxAddress(_Settings.FromDisplayName, _Settings.FromAddress);
                 }
                 else
                 {
-                    _From = new MailboxAddress(_settings.FromAddress, _settings.FromAddress);
+                    _From = MailboxAddress.Parse(_Settings.FromAddress);
                 }
             }
 
@@ -168,7 +95,7 @@ public class MailmanService(MailmanSettings settings)
         set { _From = value; }
     }
 
-    List<MailboxAddress> _To;
+    List<MailboxAddress>? _To;
     /// <summary>
     /// The list of primary recipients (To addresses)
     /// </summary>
@@ -185,14 +112,14 @@ public class MailmanService(MailmanSettings settings)
         }
     }
 
-    List<MailboxAddress> _CC;
+    List<MailboxAddress>? _CC;
     /// <summary>
     /// The list of CC (carbon copy) recipients
     /// </summary>
     public List<MailboxAddress> CC
     {
         get
-        {            
+        {
             _CC ??= [];
             return _CC;
         }
@@ -202,7 +129,7 @@ public class MailmanService(MailmanSettings settings)
         }
     }
 
-    List<MailboxAddress> _Bcc;
+    List<MailboxAddress>? _Bcc;
     /// <summary>
     /// The list of BCC (blind carbon copy) recipients
     /// </summary>
@@ -221,6 +148,90 @@ public class MailmanService(MailmanSettings settings)
 
 
     /// <summary>
+    /// Adds a recipient email address to the To list
+    /// </summary>
+    /// <param name="email">The email address to add</param>
+    public void AddTo(string email)
+    {
+        To.Add(MailboxAddress.Parse(email));
+    }
+
+    /// <summary>
+    /// Adds a recipient with display name and email address to the To list
+    /// </summary>
+    /// <param name="name">The display name of the recipient</param>
+    /// <param name="email">The email address of the recipient</param>
+    public void AddTo(string name, string email)
+    {
+        To.Add(new MailboxAddress(name, email));
+    }
+
+    /// <summary>
+    /// Adds a CC recipient email address
+    /// </summary>
+    /// <param name="email">The email address to add</param>
+    public void AddCc(string email)
+    {
+        CC.Add(MailboxAddress.Parse(email));
+    }
+
+    /// <summary>
+    /// Adds a CC recipient with display name and email address
+    /// </summary>
+    /// <param name="name">The display name of the recipient</param>
+    /// <param name="email">The email address of the recipient</param>
+    public void AddCc(string name, string email)
+    {
+        CC.Add(new MailboxAddress(name, email));
+    }
+
+    /// <summary>
+    /// Adds a BCC recipient email address
+    /// </summary>
+    /// <param name="email">The email address to add</param>
+    public void AddBcc(string email)
+    {
+        Bcc.Add(MailboxAddress.Parse(email));
+    }
+
+    /// <summary>
+    /// Adds a BCC recipient with display name and email address
+    /// </summary>
+    /// <param name="name">The display name of the recipient</param>
+    /// <param name="email">The email address of the recipient</param>
+    public void AddBcc(string name, string email)
+    {
+        Bcc.Add(new MailboxAddress(name, email));
+    }
+
+    /// <summary>
+    /// Adds multiple recipient email addresses to the To list
+    /// </summary>
+    /// <param name="emails">The collection of email addresses to add</param>
+    public void AddTo(IEnumerable<string> emails)
+    {
+        To.AddRange(emails.Select(MailboxAddress.Parse));
+    }
+
+    /// <summary>
+    /// Adds multiple CC recipient email addresses
+    /// </summary>
+    /// <param name="emails">The collection of email addresses to add</param>
+    public void AddCc(IEnumerable<string> emails)
+    {
+        CC.AddRange(emails.Select(MailboxAddress.Parse));
+    }
+
+    /// <summary>
+    /// Adds multiple BCC recipient email addresses
+    /// </summary>
+    /// <param name="emails">The collection of email addresses to add</param>
+    public void AddBcc(IEnumerable<string> emails)
+    {
+        Bcc.AddRange(emails.Select(MailboxAddress.Parse));
+    }
+
+    /// <summary>
     /// Clears all recipients (To, CC, and BCC) from the message
     /// </summary>
     public void ClearRecipients()
@@ -230,6 +241,10 @@ public class MailmanService(MailmanSettings settings)
         _Bcc?.Clear();
     }
 
+    #endregion
+
+    #region State Management
+
     /// <summary>
     /// Clears the SUBJECT, TO, CC, and BCC properties. Can optionally reset the FROM. Settings are not affected.
     /// </summary>
@@ -238,12 +253,13 @@ public class MailmanService(MailmanSettings settings)
     {
         Subject = null;
         ClearRecipients();
-        LinkedResources.Clear();
-        Attachments.Clear();
+        DisposeAttachmentsAndResources();
+
+        Categories = null;
 
         if (resetFrom)
         {
-            From = null;
+            _From = null;
         }
     }
 
@@ -253,38 +269,31 @@ public class MailmanService(MailmanSettings settings)
     /// </summary>
     public bool IsValidToSend()
     {
-        if (From is null && string.IsNullOrWhiteSpace(_settings.FromAddress))
+        if (_From is null && string.IsNullOrWhiteSpace(_Settings.FromAddress))
         {
             return false;
         }
-        if (_To is null && _CC is null && _Bcc is null)
+
+        var hasRecipient = (_To?.Count > 0) || (_CC?.Count > 0) || (_Bcc?.Count > 0);
+        if (!hasRecipient)
         {
             return false;
         }
-        var recipientValidatedAndItisGood = false;
-        if (_To != null && _To.Count > 0)
-        {
-            recipientValidatedAndItisGood = true;
-        }
-        if (_CC != null && _CC.Count > 0)
-        {
-            recipientValidatedAndItisGood = true;
-        }
-        if (_Bcc != null && _Bcc.Count > 0)
-        {
-            recipientValidatedAndItisGood = true;
-        }
-        if (!recipientValidatedAndItisGood)
+        if (_Settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.Network && string.IsNullOrWhiteSpace(_Settings.Host))
         {
             return false;
         }
-        if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.Network && string.IsNullOrWhiteSpace(_settings.Host))
+        if (_Settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory && string.IsNullOrWhiteSpace(_Settings.PickupDirectoryLocation))
         {
             return false;
         }
 
         return true;
     }
+
+    #endregion
+
+    #region Attachments and Linked Resources
 
     /// <summary>
     /// The collection of file attachments to include with the email
@@ -302,7 +311,7 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="filePath">The path to the image file</param>
     /// <param name="contentType">Optional content type (e.g., "image/png"). If not provided, it will be inferred from the file extension.</param>
     /// <returns>The Content-Id to reference in HTML</returns>
-    public string AddLinkedResource(string filePath, string contentType = null)
+    public string AddLinkedResource(string filePath, string? contentType = null)
     {
         var mimeType = contentType ?? MimeTypes.GetMimeType(filePath);
 
@@ -354,24 +363,9 @@ public class MailmanService(MailmanSettings settings)
         return AddLinkedResource(stream, fileName, contentType);
     }
 
-    /// <summary>
-    /// Adds a category to the email for tracking purposes. Categories are appended to existing categories.
-    /// </summary>
-    /// <param name="category">The category name to add</param>
-    public void AddCategory(string category)
-    {
-        if (string.IsNullOrWhiteSpace(InternalCategories))
-        {
-            InternalCategories = category;
-        }
-        else
-        {
-            InternalCategories += "," + category;
-        }
+    #endregion
 
-    }
-
-
+    #region Message Building
 
     /// <summary>
     /// Creates a MimeMessage from the current service state with the specified body content
@@ -379,14 +373,11 @@ public class MailmanService(MailmanSettings settings)
     /// <param name="body">The body content of the email</param>
     /// <param name="isHtml">Whether the body content is HTML formatted. Defaults to true.</param>
     /// <returns>A configured MimeMessage ready for sending</returns>
-    public MimeMessage GetMessage(string body, bool isHtml = true)
+    public MimeMessage GetMessage(string body, bool isHtml = true, string? subject = null)
     {
-        IsBodyHtml = isHtml;
         var message = new MimeMessage
         {
-            Subject = Subject,
-            //SubjectEncoding = Encoding,
-            //BodyEncoding = Encoding,
+            Subject =  subject ?? Subject!,
             Priority = Priority,
             Importance = Importance
         };
@@ -394,7 +385,7 @@ public class MailmanService(MailmanSettings settings)
         if (Attachments.Count > 0 || LinkedResources.Count > 0)
         {
             var builder = new BodyBuilder();
-            if (IsBodyHtml)
+            if (isHtml)
             {
                 builder.HtmlBody = body;
             }
@@ -417,7 +408,7 @@ public class MailmanService(MailmanSettings settings)
         }
         else
         {
-            if (IsBodyHtml)
+            if (isHtml)
             {
                 message.Body = new TextPart(TextFormat.Html) { Text = body };
             }
@@ -428,14 +419,10 @@ public class MailmanService(MailmanSettings settings)
         }
 
 
-        if (From != null)
+        var from = From;
+        if (from != null)
         {
-            message.From.Add(From);
-        }
-
-        if (message.From.Count == 0 && !string.IsNullOrWhiteSpace(_settings.FromAddress))
-        {
-            message.From.Add(new MailboxAddress(_settings.FromDisplayName ?? _settings.FromAddress, _settings.FromAddress));
+            message.From.Add(from);
         }
 
         if (_To != null && _To.Count > 0)
@@ -454,168 +441,368 @@ public class MailmanService(MailmanSettings settings)
         return message;
     }
 
+    #endregion
+
+    #region Sending
+
     /// <summary>
-    /// Send a message using the SMTP client. The message can either be a string or HTML.
-    /// There is no longer a method to use a MVC view to create a message. The RazorSlice extensions my be added, but fo rnow they are gone.
+    /// Sends a message using the SMTP client. The body can be either plain text or HTML.
     /// </summary>
-    /// <param name="body"></param>
-    /// <param name="isHtml"></param>
-    /// <returns></returns>
-    public async Task SendMessageAsync(string body, bool isHtml = true)
+    /// <param name="body">The body content of the email</param>
+    /// <param name="isHtml">Whether the body content is HTML formatted. Defaults to true.</param>
+    /// <param name="cancellationToken">A token to cancel the send operation</param>
+    /// <returns>A task representing the asynchronous send operation</returns>
+    public Task SendMessageAsync(string body, bool isHtml = true, CancellationToken cancellationToken = default)
     {
         var mailMessage = GetMessage(body, isHtml);
-
-        if (!string.IsNullOrWhiteSpace(Categories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
-        }
-        else if (!string.IsNullOrWhiteSpace(InternalCategories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
-        }
-
-        if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
-        {
-            SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation);
-            return;
-        }
-
-        using (var sm = new SmtpClient { })
-        {
-            if (_settings.Timeout.HasValue)
-            {
-                sm.Timeout = _settings.Timeout.Value;
-            }
-
-            sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
-
-            await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
-
-            if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
-            {
-                sm.Authenticate(new System.Net.NetworkCredential(_settings.UserName, _settings.Password));
-            }
-
-            await sm.SendAsync(mailMessage);
-            await sm.DisconnectAsync(true);
-        }
-
-        if (IsResetedAfterMessageSent)
-        {
-            Reset();
-        }
+        return SendCoreAsync(mailMessage, disposeMessage: true, cancellationToken);
     }
-
 
     /// <summary>
-    /// Sends a pre-configured MimeMessage using the SMTP client
+    /// Sends a pre-configured MimeMessage over the service's reusable SMTP connection. The connection is
+    /// established on first use and reused by later sends; if it has gone stale it is transparently
+    /// rebuilt and the send is retried once.
     /// </summary>
     /// <param name="mailMessage">The MimeMessage to send</param>
+    /// <param name="disposeMessage">Disposes the MimeMessage after sending. If you're not using the message after this send, this should be true.</param>
+    /// <param name="cancellationToken">A token to cancel the send operation</param>
     /// <returns>A task representing the asynchronous send operation</returns>
-    public async Task SendMessageAsync(MimeMessage mailMessage)
+    public Task SendMessageAsync(MimeMessage mailMessage, bool disposeMessage = false, CancellationToken cancellationToken = default)
     {
-        if (!string.IsNullOrWhiteSpace(Categories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + Categories + "\"]}");
-        }
-        else if (!string.IsNullOrWhiteSpace(InternalCategories))
-        {
-            mailMessage.Headers.Add("X-SMTPAPI", "{\"category\":[\"" + InternalCategories + "\"]}");
-        }
+        return SendCoreAsync(mailMessage, disposeMessage: disposeMessage, cancellationToken);
+    }
 
-        if (Attachments.Count > 0)
-        {
+    /// <summary>
+    /// Sends multiple pre-configured messages over the service's reusable SMTP connection. This is more
+    /// efficient than a naive loop because the connection and authentication handshake are performed only
+    /// once and the connection is kept open across all messages in the batch. If the connection drops
+    /// mid-batch it is transparently rebuilt and the failing message is retried once. When the delivery
+    /// method is a pickup directory, each message is written to disk instead.
+    /// </summary>
+    /// <param name="mailMessages">The messages to send</param>
+    /// <param name="disposeMessages">Disposes each MimeMessage after it is sent. If you're not using the messages after this send, this should be true.</param>
+    /// <param name="cancellationToken">A token to cancel the send operation</param>
+    /// <returns>A task representing the asynchronous send operation</returns>
+    public async Task SendMessagesAsync(IEnumerable<MimeMessage> mailMessages, bool disposeMessages = false, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mailMessages);
 
-        }
-
-        if (_settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
+        if (_Settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
         {
-            SaveToPickupDirectory(mailMessage, _settings.PickupDirectoryLocation);
+            if (string.IsNullOrWhiteSpace(_Settings.PickupDirectoryLocation))
+            {
+                throw new InvalidOperationException($"{nameof(MailmanSettings.PickupDirectoryLocation)} must be set when {nameof(MailmanSettings.DeliveryMethod)} is {nameof(System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)}.");
+            }
+
+            foreach (var message in mailMessages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ApplyCategories(message, Categories);
+                SaveToPickupDirectory(message, _Settings.PickupDirectoryLocation);
+                if (disposeMessages)
+                {
+                    message.Dispose();
+                }
+            }
             return;
         }
 
-        using (var sm = new SmtpClient { })
+        // Establish (or reuse) the connection up front so a bad configuration fails fast.
+        await GetConnectedClientAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var message in mailMessages)
         {
-            if (_settings.Timeout.HasValue)
+            cancellationToken.ThrowIfCancellationRequested();
+            ApplyCategories(message, Categories);
+            await SendWithReconnectAsync(message, cancellationToken).ConfigureAwait(false);
+            if (disposeMessages)
             {
-                sm.Timeout = _settings.Timeout.Value;
+                message.Dispose();
             }
-
-            sm.CheckCertificateRevocation = _settings.CheckCertificateRevocation;
-
-            await sm.ConnectAsync(_settings.Host, _settings.Port, SecureSocketOptions.Auto);
-
-            if (!string.IsNullOrWhiteSpace(_settings.UserName) || !string.IsNullOrWhiteSpace(_settings.Password))
-            {
-                sm.Authenticate(new System.Net.NetworkCredential(_settings.UserName, _settings.Password));
-            }
-
-            await sm.SendAsync(mailMessage);
-            await sm.DisconnectAsync(true);
-        }
-
-        if (IsResetedAfterMessageSent)
-        {
-            Reset();
         }
     }
 
-    private static void SaveToPickupDirectory(MimeMessage message, string pickupDirectory)
+    /// <summary>
+    /// Applies the X-SMTPAPI category header (when categories are configured), then either writes the
+    /// message to the pickup directory or sends it over the reusable SMTP connection (with a single
+    /// reconnect-and-retry on a stale connection), and optionally resets the service state.
+    /// </summary>
+    private async Task SendCoreAsync(MimeMessage mailMessage, bool disposeMessage, CancellationToken cancellationToken)
     {
-        do
+        try
         {
-            // Generate a random file name to save the message to.
-            var path = Path.Combine(pickupDirectory, Guid.NewGuid().ToString() + ".eml");
-            Stream stream;
+            ApplyCategories(mailMessage, Categories);
 
-            try
+            if (_Settings.DeliveryMethod == System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)
             {
-                // Attempt to create the new file.
-                stream = File.Open(path, FileMode.CreateNew);
-            }
-            catch (IOException)
-            {
-                // If the file already exists, try again with a new Guid.
-                if (File.Exists(path))
-                    continue;
-
-                // Otherwise, fail immediately since it probably means that there is
-                // no graceful way to recover from this error.
-                throw;
-            }
-
-            try
-            {
-                using (stream)
+                if (string.IsNullOrWhiteSpace(_Settings.PickupDirectoryLocation))
                 {
-                    // IIS pickup directories expect the message to be "byte-stuffed"
-                    // which means that lines beginning with "." need to be escaped
-                    // by adding an extra "." to the beginning of the line.
-                    //
-                    // Use an SmtpDataFilter "byte-stuff" the message as it is written
-                    // to the file stream. This is the same process that an SmtpClient
-                    // would use when sending the message in a `DATA` command.
-                    using var filtered = new FilteredStream(stream);
-                    filtered.Add(new SmtpDataFilter());
-
-                    // Make sure to write the message in DOS (<CR><LF>) format.
-                    var options = FormatOptions.Default.Clone();
-                    options.NewLineFormat = NewLineFormat.Dos;
-
-                    message.WriteTo(options, filtered);
-                    filtered.Flush();
-                    return;
+                    throw new InvalidOperationException($"{nameof(MailmanSettings.PickupDirectoryLocation)} must be set when {nameof(MailmanSettings.DeliveryMethod)} is {nameof(System.Net.Mail.SmtpDeliveryMethod.SpecifiedPickupDirectory)}.");
                 }
+
+                SaveToPickupDirectory(mailMessage, _Settings.PickupDirectoryLocation);
+                return;
+            }
+
+            await SendWithReconnectAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (IsResetedAfterMessageSent)
+            {
+                Reset();
+            }
+
+            if (disposeMessage)
+            {
+                mailMessage.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns a connected (and, when credentials are configured, authenticated) <see cref="SmtpClient"/>.
+    /// The client is created lazily on first use and reused across subsequent sends so that the connection
+    /// and authentication handshake are not repeated for every message. If a previously created client has
+    /// been disconnected (for example by the server), it is transparently reconnected. The client is owned
+    /// by this service and is disposed when the service is disposed.
+    /// </summary>
+    private async Task<SmtpClient> GetConnectedClientAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_Disposed, this);
+        ArgumentNullException.ThrowIfNull(_Settings.Host, nameof(_Settings.Host));
+
+        _SmtpClient ??= new SmtpClient();
+
+        if (_Settings.Timeout.HasValue)
+        {
+            _SmtpClient.Timeout = _Settings.Timeout.Value;
+        }
+
+        _SmtpClient.CheckCertificateRevocation = _Settings.CheckCertificateRevocation;
+
+        if (!_SmtpClient.IsConnected)
+        {
+            await _SmtpClient.ConnectAsync(_Settings.Host, _Settings.Port, _Settings.SecureSocketOptions, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!_SmtpClient.IsAuthenticated && !string.IsNullOrWhiteSpace(_Settings.UserName) && !string.IsNullOrWhiteSpace(_Settings.Password))
+        {
+            await _SmtpClient.AuthenticateAsync(new System.Net.NetworkCredential(_Settings.UserName, _Settings.Password), cancellationToken).ConfigureAwait(false);
+        }
+
+        return _SmtpClient;
+    }
+
+    /// <summary>
+    /// Sends a single message over the persistent client. If the send fails because the pooled
+    /// connection has gone stale (for example the server dropped an idle connection), the client is
+    /// torn down, a fresh connection is established, and the send is retried exactly once.
+    /// </summary>
+    private async Task SendWithReconnectAsync(MimeMessage mailMessage, CancellationToken cancellationToken)
+    {
+        var sm = await GetConnectedClientAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await sm.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsTransientConnectionException(ex))
+        {
+            // The pooled connection was likely stale. Rebuild it and retry the send once.
+            DisposeClient();
+            var retryClient = await GetConnectedClientAsync(cancellationToken).ConfigureAwait(false);
+            await retryClient.SendAsync(mailMessage, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Determines whether an exception indicates the persistent connection is no longer usable and a
+    /// reconnect-and-retry is warranted.
+    /// <para>
+    /// <see cref="MailKit.ServiceNotAuthenticatedException"/> is included because a pooled connection can
+    /// lose its authenticated session on the server (for example, after an idle timeout) while the socket
+    /// still appears connected; rebuilding the connection re-runs the authentication handshake. A genuine
+    /// bad-credentials <see cref="MailKit.Security.AuthenticationException"/> is thrown during authentication
+    /// in <see cref="GetConnectedClientAsync"/> (outside the retry scope), so it propagates immediately and
+    /// is never retried here.
+    /// </para>
+    /// </summary>
+    private static bool IsTransientConnectionException(Exception ex)
+    {
+        return ex is MailKit.ServiceNotConnectedException
+            or MailKit.ServiceNotAuthenticatedException
+            or MailKit.Net.Smtp.SmtpProtocolException
+            or System.IO.IOException
+            or System.Net.Sockets.SocketException;
+    }
+
+    /// <summary>
+    /// Disposes and clears the persistent SMTP client so the next send establishes a fresh connection.
+    /// </summary>
+    private void DisposeClient()
+    {
+        if (_SmtpClient != null)
+        {
+            _SmtpClient.Dispose();
+            _SmtpClient = null;
+        }
+    }
+
+    #endregion
+
+    #region Connection Management
+
+    /// <summary>
+    /// Resets the reusable SMTP connection by disposing the current client. The next send will lazily
+    /// establish (and re-authenticate) a brand new connection. Use this to force a clean reconnect, for
+    /// example after changing network conditions or when a long-lived connection may have gone stale.
+    /// Prefer <see cref="ResetConnectionAsync(CancellationToken)"/> so the connection can be closed gracefully.
+    /// </summary>
+    public void ResetConnection()
+    {
+        DisposeClient();
+    }
+
+    /// <summary>
+    /// Asynchronously resets the reusable SMTP connection. When connected, the client is gracefully
+    /// disconnected (SMTP QUIT) and disposed; the next send will lazily establish (and re-authenticate)
+    /// a brand new connection.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the graceful disconnect.</param>
+    /// <returns>A task representing the asynchronous reset operation.</returns>
+    public async Task ResetConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        if (_SmtpClient == null)
+        {
+            return;
+        }
+
+        if (_SmtpClient.IsConnected)
+        {
+            try
+            {
+                await _SmtpClient.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
-                // An exception here probably means that the disk is full.
-                //
-                // Delete the file that was created above so that incomplete files are not
-                // left behind for IIS to send accidentally.
-                File.Delete(path);
-                throw;
+                // Best-effort graceful disconnect; the client is disposed regardless below.
             }
-        } while (true);
+        }
+
+        _SmtpClient.Dispose();
+        _SmtpClient = null;
     }
+
+    #endregion
+
+    #region Helpers
+
+
+
+
+    /// <summary>
+    /// Disposes and clears any attachments and linked resources. These may hold open file or
+    /// stream handles (e.g., from <see cref="AddLinkedResource(string, string?)"/>), so they
+    /// must be released when they are no longer needed.
+    /// </summary>
+    private void DisposeAttachmentsAndResources()
+    {
+        if (LinkedResources != null)
+        {
+            foreach (var resource in LinkedResources)
+            {
+                resource?.Dispose();
+            }
+            LinkedResources.Clear();
+        }
+
+        if (Attachments != null)
+        {
+            foreach (var attachment in Attachments)
+            {
+                attachment?.Dispose();
+            }
+            Attachments.Clear();
+        }
+    }
+
+    #endregion
+
+    #region Disposal
+
+    /// <summary>
+    /// Releases the pending attachments, linked resources, and the reusable SMTP client held by this service.
+    /// </summary>
+    /// <param name="disposing">True when called from <see cref="Dispose()"/>; false when called from a finalizer.</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_Disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            DisposeAttachmentsAndResources();
+            DisposeClient();
+        }
+
+        _Disposed = true;
+    }
+
+    /// <summary>
+    /// Releases all resources used by the <see cref="MailmanService"/>, including the reusable SMTP
+    /// connection and any open file or stream handles held by pending attachments and linked resources
+    /// that were not sent. Prefer <see cref="DisposeAsync"/> so the SMTP connection can be closed gracefully.
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Asynchronously releases resources: disposes any pending attachments and linked resources and,
+    /// when connected, gracefully disconnects (SMTP QUIT) and disposes the reusable SMTP client.
+    /// Override to release additional resources asynchronously in derived types.
+    /// </summary>
+    protected virtual async ValueTask DisposeAsyncCore()
+    {
+        if (!_Disposed)
+        {
+            DisposeAttachmentsAndResources();
+
+            if (_SmtpClient != null)
+            {
+                if (_SmtpClient.IsConnected)
+                {
+                    try
+                    {
+                        await _SmtpClient.DisconnectAsync(true).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Best-effort graceful disconnect; ignore failures during teardown.
+                    }
+                }
+
+                _SmtpClient.Dispose();
+                _SmtpClient = null;
+            }
+
+            _Disposed = true;
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously releases all resources used by the <see cref="MailmanService"/>, gracefully closing
+    /// the reusable SMTP connection and releasing any open file or stream handles held by pending
+    /// attachments and linked resources that were not sent.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
+    }
+
+    #endregion
 }
