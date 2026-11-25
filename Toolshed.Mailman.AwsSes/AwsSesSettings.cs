@@ -57,6 +57,12 @@ public class AwsSesSettings
     public string? ConfigurationSetName { get; set; }
 
     /// <summary>
+    /// The name of the SES tenant to send through. The name is case-sensitive, and the sending identity and
+    /// configuration set must be associated with the tenant. When left null, messages are sent without a tenant.
+    /// </summary>
+    public string? TenantName { get; set; }
+
+    /// <summary>
     /// The address SES should use for the return-path (envelope MAIL FROM) of a message. Optional.
     /// </summary>
     public string? FeedbackForwardingEmailAddress { get; set; }

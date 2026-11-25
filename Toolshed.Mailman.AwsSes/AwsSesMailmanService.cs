@@ -484,6 +484,11 @@ public class AwsSesMailmanService(AwsSesSettings settings) : MailmanBaseService,
                 request.ConfigurationSetName = _Settings.ConfigurationSetName;
             }
 
+            if (!string.IsNullOrWhiteSpace(_Settings.TenantName))
+            {
+                request.TenantName = _Settings.TenantName;
+            }
+
             if (!string.IsNullOrWhiteSpace(_Settings.FeedbackForwardingEmailAddress))
             {
                 request.FeedbackForwardingEmailAddress = _Settings.FeedbackForwardingEmailAddress;
